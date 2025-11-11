@@ -1,0 +1,369 @@
+/* CSS variables for colors and common values - NEW PROFESSIONAL STYLE */
+:root {
+    /* New Color Palette: Dark Blue/Teal & Neutrals */
+    --color-text: #333d47; /* Dark slate text */
+    --color-text-strong: #1a202c; /* Near black for emphasis */
+    --color-bg: #f4f6f9; /* Light grey background */
+    --color-surface: #ffffff; /* Pure white surfaces */
+    --color-accent: #f59e0b; /* Amber/Gold for alerts/badges */
+    --color-muted: #94a3b8; /* Soft blue-grey for muted text */
+    --color-border: #e2e8f0; /* Light border grey */
+    --color-border-light: #f8fafc;
+    --color-primary: #007bff; /* Deep primary blue */
+    --color-primary-soft: #0056b3; /* Darker blue for hover */
+    --color-success: #10b981; /* Green for success/good ratings */
+    --color-muted-2: #edf2f7; /* Lighter background section */
+    --color-assistant-bg: #eef1f3;
+    --color-white: #fff;
+    --color-heading: #1a202c;
+    --shadow-1: 0 4px 12px rgba(0, 0, 0, 0.08); /* Stronger, modern shadow */
+    --color-muted-dark: #64748b; /* Medium grey for secondary buttons */
+  }
+  
+* {
+margin: 0;
+padding: 0;
+box-sizing: border-box;
+scrollbar-width: thin;
+scrollbar-color: var(--color-primary) var(--color-muted-2);
+}
+
+/* Scrollbar styling remains clean and consistent */
+::-webkit-scrollbar {
+width: 10px;
+height: 10px;
+}
+
+::-webkit-scrollbar-track {
+background: var(--color-muted-2);
+border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+background-color: var(--color-primary);
+border-radius: 10px;
+border: 2px solid var(--color-border);
+transition: background-color 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+background-color: var(--color-primary-soft);
+}
+
+html {
+scroll-behavior: smooth;
+}
+
+body {
+font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; /* More modern font stack */
+line-height: 1.6;
+color: var(--color-text);
+background-color: var(--color-bg); /* Use light grey background */
+height: 100svh;
+overflow: auto;
+}
+
+/* --- Header styles: Flat, minimal, and clean --- */
+header {
+background: var(--color-surface); /* White header */
+padding: 1rem 2rem;
+border-bottom: 1px solid var(--color-border); /* Subtle separation */
+text-align: center;
+display: flex;
+align-items: center;
+justify-content: space-between;
+color: var(--color-text-strong);
+box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05); /* Subtle lift */
+}
+
+header h1 {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 1.5rem;
+    color: var(--color-primary); /* Primary color for logo/title */
+}
+
+nav ul {
+list-style: none;
+display: flex;
+}
+
+nav ul li {
+display: inline;
+margin: 0 0.5rem;
+color: var(--color-text);
+border-radius: 0.3rem;
+}
+
+nav ul li a {
+text-decoration: none;
+display: flex;
+align-items: center;
+gap: 0.5rem;
+padding: 0.5rem 1rem;
+color: inherit;
+font-weight: 500;
+transition: background-color 0.3s ease;
+}
+
+nav ul li:hover {
+color: var(--color-primary);
+background-color: var(--color-muted-2); /* Light grey hover background */
+}
+
+/* --- Main content styles --- */
+main {
+padding: 2rem;
+max-width: 1280px; /* Max width increased for space */
+margin: auto;
+min-height: calc(100vh - 134px);
+}
+
+.products-header {
+display: flex;
+justify-content: space-between;
+align-items: center;
+margin-bottom: 2rem;
+padding-bottom: 0.5rem;
+border-bottom: 2px solid var(--color-border);
+}
+
+.products-header h2 {
+color: var(--color-heading);
+font-size: 1.8rem;
+font-weight: 600;
+}
+
+/* Updated Button Style: Clean, Primary Color */
+.btn {
+background-color: var(--color-primary);
+color: var(--color-white);
+padding: 0.6rem 1.25rem;
+border: none;
+border-radius: 0.3rem;
+cursor: pointer;
+font-size: 1rem;
+font-weight: 500;
+transition: all 0.3s ease;
+display: flex;
+align-items: center;
+gap: 0.5rem;
+}
+
+.btn:hover {
+background-color: var(--color-primary-soft);
+box-shadow: 0 4px 8px rgba(0, 123, 255, 0.3); /* Subtle blue glow */
+}
+
+/* Product List Grid Layout */
+.product-list {
+display: grid;
+grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); /* Slightly larger cards */
+gap: 1.5rem;
+}
+
+/* Professional Product Card Style */
+.product-card {
+width: fit-content;
+background-color: var(--color-surface);
+border: 1px solid var(--color-border);
+padding: 1.5rem;
+border-radius: 0.5rem;
+box-shadow: var(--shadow-1);
+display: flex;
+flex-direction: column;
+justify-content: space-between;
+transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.product-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+}
+
+.product-info h3 {
+color: var(--color-primary);
+font-size: 1.25rem;
+margin-bottom: 0.5rem;
+}
+
+.product-actions {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--color-border-light);
+    display: flex;
+    justify-content: flex-end; /* Align buttons to the right */
+    align-items: center;
+}
+
+.product-actions button {
+border: none;
+background: none;
+cursor: pointer;
+color: var(--color-muted-dark);
+font-size: 1.1rem;
+margin-left: 1rem;
+transition: color 0.2s ease;
+}
+
+.product-actions button:hover {
+color: var(--color-primary);
+}
+
+
+/* --- Footer styles: Minimal and Dark --- */
+footer {
+background-color: var(--color-text-strong);
+color: var(--color-muted);
+text-align: center;
+padding: 1rem;
+width: 100%;
+font-size: 0.85rem;
+}
+
+/* --- Form Modal --- */
+.modal {
+display: none;
+position: fixed;
+z-index: 1000;
+top: 0;
+left: 0;
+right: 0;
+bottom: 0;
+background: rgba(45, 55, 72, 0.8); /* Darker, professional modal background */
+justify-content: center;
+align-items: center;
+backdrop-filter: blur(4px); /* Stronger blur for focus */
+}
+
+.modal.show {
+    display: flex;
+}
+
+.modal-content {
+height: 80%;
+overflow: auto;
+background: var(--color-surface);
+padding: 2.5rem;
+border-radius: 0.75rem; /* More rounded corners */
+width: 90%;
+max-width: 550px;
+box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+}
+
+.modal-content h3 {
+margin-bottom: 1.5rem;
+color: var(--color-primary-soft);
+border-bottom: 1px solid var(--color-border);
+padding-bottom: 0.5rem;
+}
+
+.form-group {
+margin-bottom: 1.2rem;
+}
+
+.form-group label {
+display: block;
+margin-bottom: 0.4rem;
+font-weight: 600;
+color: var(--color-text);
+font-size: 0.9rem;
+}
+
+.form-group input,
+.form-group textarea {
+width: 100%;
+padding: 0.75rem;
+border: 1px solid var(--color-border);
+border-radius: 0.3rem;
+font-size: 1rem;
+transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.form-group input:focus,
+.form-group textarea:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.25);
+    outline: none;
+}
+
+.form-group textarea {
+    resize: vertical;
+}
+
+/* Button layout in the form */
+#productForm {
+    display: flex;
+    flex-direction: column;
+}
+
+#productForm .btn {
+    align-self: flex-end;
+    margin-right: 0;
+    margin-top: 1rem;
+    width: 150px; /* Fixed width for uniformity */
+}
+
+#productForm #closeModalBtn {
+    background-color: var(--color-muted-dark);
+    margin-top: 0.5rem; /* Stacked buttons */
+}
+
+#productForm #closeModalBtn:hover {
+    background-color: #4a5568; /* Darker grey on hover */
+}
+/* --- Custom Confirm Modal --- */
+.confirm-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(45, 55, 72, 0.7);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    backdrop-filter: blur(4px);
+  }
+  
+.confirm-modal.show {
+display: flex;
+}
+
+.confirm-box {
+background: var(--color-surface);
+color: var(--color-text);
+border-radius: 0.75rem;
+padding: 2rem;
+width: 90%;
+max-width: 400px;
+box-shadow: var(--shadow-1);
+text-align: center;
+}
+
+.confirm-box h4 {
+color: var(--color-primary);
+font-size: 1.25rem;
+margin-bottom: 1rem;
+}
+
+.confirm-box p {
+font-size: 1rem;
+color: var(--color-text);
+margin-bottom: 1.5rem;
+}
+
+.confirm-buttons {
+display: flex;
+justify-content: center;
+gap: 1rem;
+}
+
+.confirm-buttons .btn-danger {
+background-color: var(--color-muted-dark);
+color: white;
+}
+
+.confirm-buttons .btn-danger:hover {
+background-color: #4a5568;
+}
+  
