@@ -21,11 +21,32 @@
             <a href="#"><i class="fa-solid fa-home"></i> Home</a>
           </li>
           <li>
-            <a href="./pages/chat.html"><i class="fa-solid fa-comment-dots"></i> Chat</a>
+            <a href="./pages/chat.html"><i class="fa-solid fa-headset"></i> Customer Service</a>
+          </li>
+          <li>
+            <a href="#" id="cartBtn"><i class="fa-solid fa-shopping-cart"></i> Cart <span id="cartCount" class="cart-badge">0</span></a>
+          </li>
+          <li>
+            <a href="#" id="ordersBtn"><i class="fa-solid fa-box"></i> My Orders</a>
+          </li>
+          <li>
+            <a href="#" id="compareBtn"><i class="fa-solid fa-code-compare"></i> Compare (<span id="compareCount">0</span>)</a>
+          </li>
+          <li>
+            <a href="#" id="analyticsBtn"><i class="fa-solid fa-chart-line"></i> Analytics</a>
+          </li>
+          <li>
+            <button class="btn-dark-mode" id="darkModeToggle" title="Toggle Dark Mode">
+              <i class="fa-solid fa-moon"></i>
+            </button>
           </li>
         </ul>
       </nav>
     </header>
+
+    <div class="keyboard-shortcuts-hint" id="shortcutsHint">
+      Press <kbd>?</kbd> for shortcuts
+    </div>
 
     <main>
       <div class="products-header">
@@ -34,6 +55,47 @@
           <i class="fa-solid fa-plus"></i> Add Product
         </button>
       </div>
+
+      <div class="voice-search-container">
+        <button class="btn-voice" id="voiceSearchBtn">
+          <i class="fa-solid fa-microphone"></i>
+          <span>Voice Search</span>
+        </button>
+        <span class="voice-status" id="voiceStatus"></span>
+      </div>
+
+      <div class="filter-section">
+        <div class="filter-group">
+          <label><i class="fa-solid fa-filter"></i> Category:</label>
+          <select id="categoryFilter">
+            <option value="">All Categories</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label><i class="fa-solid fa-dollar-sign"></i> Price:</label>
+          <select id="priceFilter">
+            <option value="">All Prices</option>
+            <option value="0-50">Under $50</option>
+            <option value="50-100">$50 - $100</option>
+            <option value="100-500">$100 - $500</option>
+            <option value="500+">$500+</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label><i class="fa-solid fa-tag"></i> Badge:</label>
+          <select id="badgeFilter">
+            <option value="">All Badges</option>
+          </select>
+        </div>
+        <button class="btn btn-filter" id="applyFilters">
+          <i class="fa-solid fa-check"></i> Apply Filters
+        </button>
+        <button class="btn btn-reset" id="resetFilters">
+          <i class="fa-solid fa-rotate-right"></i> Reset
+        </button>
+      </div>
+
+      <div class="live-activity" id="liveActivity"></div>
 
       <section id="productList" class="product-list">
         <p>Loading products...</p>

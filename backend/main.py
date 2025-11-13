@@ -2,7 +2,7 @@ import os
 import uvicorn
 from google.adk.cli.fast_api import get_fast_api_app
 from services.product_service import ProductService
-from routers import products
+from routers import products, orders
 
 product_service = ProductService("backend/products.db")
 
@@ -31,6 +31,7 @@ app = get_fast_api_app(
 )
 
 app.include_router(products.router, prefix="/products", tags=["Products"])
+app.include_router(orders.router, prefix="/orders", tags=["Orders"])
 
 if __name__ == "__main__":
     # Use the PORT environment variable provided by Cloud Run, defaulting to 8080

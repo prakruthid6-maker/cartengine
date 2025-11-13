@@ -282,3 +282,62 @@ form.addEventListener("submit", async (e) => {
   input.value = "";
   await sendMessage(text, currentFile);
 });
+
+// --- Customer Service Help Modal ---
+const helpBtn = document.getElementById('helpBtn');
+if (helpBtn) {
+  helpBtn.onclick = (e) => {
+    e.preventDefault();
+    showHelpModal();
+  };
+}
+
+function showHelpModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'help-modal show';
+  
+  const box = document.createElement('div');
+  box.className = 'help-box';
+  
+  box.innerHTML = `
+    <h3><i class="fa-solid fa-circle-info"></i> Customer Service Help</h3>
+    <div class="help-content">
+      <h4>How can I help you?</h4>
+      <p>Ask me anything about:</p>
+      <ul>
+        <li><i class="fa-solid fa-filter"></i> <strong>Filter Products:</strong> "Show Electronics under $100" or "Filter by category Clothing"</li>
+        <li><i class="fa-solid fa-tag"></i> <strong>Badges & Categories:</strong> "Get all categories" or "Get all badges"</li>
+        <li><i class="fa-solid fa-code-compare"></i> <strong>Compare Products:</strong> "Compare products elec-001, elec-002, elec-003"</li>
+        <li><i class="fa-solid fa-chart-line"></i> <strong>Analytics:</strong> "Show analytics summary" or "Get analytics"</li>
+        <li><i class="fa-solid fa-box"></i> <strong>Order Tracking:</strong> "Track my order ORD-12345678"</li>
+        <li><i class="fa-solid fa-ban"></i> <strong>Cancel Order:</strong> "Cancel my order ORD-12345678"</li>
+        <li><i class="fa-solid fa-search"></i> <strong>Product Search:</strong> "Show me products under $50"</li>
+        <li><i class="fa-solid fa-star"></i> <strong>Recommendations:</strong> "Recommend products for $100 budget"</li>
+        <li><i class="fa-solid fa-heart"></i> <strong>Wishlist:</strong> "Add product elec-001 to my wishlist"</li>
+        <li><i class="fa-solid fa-comment"></i> <strong>Reviews:</strong> "Show reviews for product elec-001"</li>
+        <li><i class="fa-solid fa-tag"></i> <strong>Coupons:</strong> "Validate coupon code SAVE20"</li>
+        <li><i class="fa-solid fa-shopping-cart"></i> <strong>Orders:</strong> "Create order for elec-001"</li>
+      </ul>
+      <h4>🆕 New Features:</h4>
+      <ul>
+        <li><strong>Voice Search:</strong> Available on main page - click microphone</li>
+        <li><strong>Product Comparison:</strong> Compare multiple products side-by-side</li>
+        <li><strong>Analytics Dashboard:</strong> Get insights on products and orders</li>
+        <li><strong>Dark Mode:</strong> Toggle theme on main page</li>
+        <li><strong>Keyboard Shortcuts:</strong> Press ? on main page</li>
+      </ul>
+      <h4>Quick Tips:</h4>
+      <ul>
+        <li>All webpage features work in chat too!</li>
+        <li>Be specific with product IDs and order numbers</li>
+        <li>You can attach images for visual product search</li>
+        <li>Ask for trending products or best deals</li>
+      </ul>
+    </div>
+    <button class="btn" onclick="this.closest('.help-modal').remove()">Got it!</button>
+  `;
+  
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+}
