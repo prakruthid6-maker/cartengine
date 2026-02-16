@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login - Shopping Agent</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link rel="stylesheet" href="./styles/login.css" />
+</head>
+<body>
+  <div class="login-container">
+    <div class="login-box">
+      <div class="login-header">
+        <i class="fa-solid fa-cart-shopping"></i>
+        <h1>Shopping Agent</h1>
+        <p>Sign in to continue</p>
+      </div>
+      
+      <form id="loginForm">
+        <div class="form-group">
+          <label for="username">
+            <i class="fa-solid fa-user"></i> Username
+          </label>
+          <input type="text" id="username" name="username" required placeholder="Enter username" />
+        </div>
+        
+        <div class="form-group">
+          <label for="password">
+            <i class="fa-solid fa-lock"></i> Password
+          </label>
+          <input type="password" id="password" name="password" required placeholder="Enter password" />
+        </div>
+        
+        <div class="form-group">
+          <label for="role">
+            <i class="fa-solid fa-user-tag"></i> Login As
+          </label>
+          <select id="role" name="role" required>
+            <option value="user">Customer</option>
+            <option value="admin">Administrator</option>
+          </select>
+        </div>
+        
+        <button type="submit" class="btn-login">
+          <i class="fa-solid fa-sign-in-alt"></i> Sign In
+        </button>
+      </form>
+      
+      <div class="demo-credentials">
+        <h4><i class="fa-solid fa-info-circle"></i> Demo Credentials</h4>
+        <div class="credentials-grid">
+          <div class="credential-card">
+            <h5><i class="fa-solid fa-user"></i> Customer</h5>
+            <p><strong>Username:</strong> user</p>
+            <p><strong>Password:</strong> user123</p>
+          </div>
+          <div class="credential-card">
+            <h5><i class="fa-solid fa-user-shield"></i> Admin</h5>
+            <p><strong>Username:</strong> admin</p>
+            <p><strong>Password:</strong> admin123</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <script type="module" src="./scripts/login.js"></script>
+</body>
+</html>

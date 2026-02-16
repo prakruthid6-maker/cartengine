@@ -1,4 +1,5 @@
 import ApiService from "../services/apiService.js";
+import { requireAuth, isAdmin, logout, getUsername, getUserRole } from "./auth.js";
 
 // --- Element Selectors ---
 const productList = document.getElementById("productList");
@@ -20,6 +21,12 @@ let compareList = JSON.parse(localStorage.getItem('compareList')) || [];
 
 // --- Initialization ---
 document.addEventListener("DOMContentLoaded", () => {
+  // Check authentication
+  if (!requireAuth()) return;
+  
+  // Initialize UI based on role
+  initRoleBasedUI();
+  
   loadProducts();
   updateCartCount();
   initCartAndOrders();
@@ -32,6 +39,44 @@ document.addEventListener("DOMContentLoaded", () => {
   initDarkMode();
   initKeyboardShortcuts();
 });
+
+function initRoleBasedUI() {
+  const userRole = getUserRole();
+  const username = getUsername();
+  
+  // Add user info and logout button to header
+  const header = document.querySelector('header nav ul');
+  const userInfo = document.createElement('li');
+  userInfo.innerHTML = `
+    <span style="color: white; margin-right: 10px;">
+      <i class="fa-solid fa-user"></i> ${username} (${userRole === 'admin' ? 'Admin' : 'Customer'})
+    </span>
+  `;
+  const logoutBtn = document.createElement('li');
+  logoutBtn.innerHTML = `
+    <a href="#" id="logoutBtn">
+      <i class="fa-solid fa-sign-out-alt"></i> Logout
+    </a>
+  `;
+  header.appendChild(userInfo);
+  header.appendChild(logoutBtn);
+  
+  document.getElementById('logoutBtn').onclick = (e) => {
+    e.preventDefault();
+    logout();
+  };
+  
+  // Hide admin-only features for regular users
+  if (!isAdmin()) {
+    // Hide Add Product button
+    const addProductBtn = document.getElementById('addProductBtn');
+    if (addProductBtn) addProductBtn.style.display = 'none';
+    
+    // Hide Analytics button
+    const analyticsBtn = document.getElementById('analyticsBtn');
+    if (analyticsBtn) analyticsBtn.style.display = 'none';
+  }
+}
 
 function initCartAndOrders() {
   const cartBtn = document.getElementById('cartBtn');
@@ -250,12 +295,14 @@ function renderProducts(products = []) {
             <button type="button" class="btn-compare" data-pid="${product.id}">
               <i class="fa-solid fa-code-compare"></i>
             </button>
+            ${isAdmin() ? `
             <button type="button" class="btn-edit" data-pid="${product.id}">
               <i class="fa-solid fa-pen"></i>
             </button>
             <button type="button" class="btn-delete" data-pid="${product.id}" data-cid="${product.categoryId}">
               <i class="fa-solid fa-trash"></i>
             </button>
+            ` : ''}
           </div>
         </div>
       `
@@ -277,18 +324,20 @@ function renderProducts(products = []) {
       });
     });
     
-    document.querySelectorAll('.btn-edit').forEach(btn => {
-      btn.addEventListener('click', function() {
-        const product = window.productsData[this.dataset.pid];
-        editProduct(this.dataset.pid, product);
+    if (isAdmin()) {
+      document.querySelectorAll('.btn-edit').forEach(btn => {
+        btn.addEventListener('click', function() {
+          const product = window.productsData[this.dataset.pid];
+          editProduct(this.dataset.pid, product);
+        });
       });
-    });
-    
-    document.querySelectorAll('.btn-delete').forEach(btn => {
-      btn.addEventListener('click', function() {
-        deleteProduct(this.dataset.pid, this.dataset.cid);
+      
+      document.querySelectorAll('.btn-delete').forEach(btn => {
+        btn.addEventListener('click', function() {
+          deleteProduct(this.dataset.pid, this.dataset.cid);
+        });
       });
-    });
+    }
   }, 100);
 }
 

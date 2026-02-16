@@ -1,39 +1,96 @@
-import os
-import uvicorn
-from google.adk.cli.fast_api import get_fast_api_app
-from services.product_service import ProductService
-from routers import products, orders
+"""
+E-Commerce AI Platform - Main FastAPI Application
 
-product_service = ProductService("backend/products.db")
+Enhanced with:
+- JWT Authentication
+- Role-based access control
+- CORS configuration
+- Health check endpoint
+"""
+
+import os
+import sys
+import uvicorn
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from google.adk.cli.fast_api import get_fast_api_app
+from dotenv import load_dotenv
+
+# Add backend to path for imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from services.product_service import ProductService
+from routers import products, orders, auth, chat, cart
+
+load_dotenv()
+
+# Initialize services
+product_service = ProductService("products.db")
 
 # Get the directory where main.py is located
 AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Session service URI (e.g., SQLite)
-# SESSION_SERVICE_URI = "sqlite:///./sessions.db"
-
-# Configure allowed origins for CORS - Add your domains here
+# Configure allowed origins for CORS
 ALLOWED_ORIGINS = [
-    "*"  # Only use this for development - remove for production
+    "http://localhost:3000",     # Next.js dev server
+    "http://localhost:8080",     # FastAPI dev
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:8080",
 ]
 
-# Set web=True if you intend to serve a web interface, False otherwise
+# Add wildcard for development (remove in production)
+if os.getenv("ENVIRONMENT", "development") == "development":
+    ALLOWED_ORIGINS.append("*")
+
+# Web interface flag
 SERVE_WEB_INTERFACE = True
 
-# Call the function to get the FastAPI app instance
-# The agent_dir should point to the directory containing main.py
-# ADK will automatically discover the weather_agent folder within it
+# Get the FastAPI app with ADK integration
 app = get_fast_api_app(
-    agents_dir=AGENT_DIR,  # This points to sample-agent-v2/ directory
-    # session_service_uri=SESSION_SERVICE_URI,
-    allow_origins=ALLOWED_ORIGINS,  # This is the key CORS configuration
+    agents_dir=AGENT_DIR,
+    allow_origins=ALLOWED_ORIGINS,
     web=SERVE_WEB_INTERFACE,
 )
 
+
+# ============ Health Check ============
+
+@app.get("/health", tags=["Health"])
+async def health_check():
+    """Health check endpoint for monitoring and load balancers."""
+    return {
+        "status": "healthy",
+        "service": "e-commerce-ai",
+        "version": "2.0.0"
+    }
+
+
+# ============ Include Routers ============
+
+# Authentication routes
+app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
+
+# Product routes
 app.include_router(products.router, prefix="/products", tags=["Products"])
+
+# Order routes
 app.include_router(orders.router, prefix="/orders", tags=["Orders"])
 
+# Chat routes
+app.include_router(chat.router, prefix="/chat", tags=["Chat"])
+
+# Cart routes (NEW - syncs with AI agent)
+app.include_router(cart.router, prefix="/cart", tags=["Cart"])
+
+
+# ============ Run Server ============
+
 if __name__ == "__main__":
-    # Use the PORT environment variable provided by Cloud Run, defaulting to 8080
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
- 
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=port,
+        reload=True,  # Enable hot reload in development
+        log_level="info"
+    )

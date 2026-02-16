@@ -1,6 +1,6 @@
 import aiosqlite
 from typing import List, Optional
-from models.data_models import Product, Seller, Order, Payment, OrderTracking, Wishlist, Review, Coupon
+from models.data_models import Product, Seller, Order, Payment, OrderTracking, Wishlist, Review, Coupon, CartItem, Cart
 
 
 class ProductRepo:
@@ -21,7 +21,12 @@ class ProductRepo:
                     image TEXT,
                     badge TEXT,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    seller_id TEXT
+                    seller_id TEXT,
+                    stock_quantity INTEGER DEFAULT 100,
+                    discount_percent REAL DEFAULT 0,
+                    original_price REAL,
+                    sku TEXT,
+                    specifications TEXT
                 )
             """)
             await db.execute("""
@@ -89,6 +94,30 @@ class ProductRepo:
                     status TEXT
                 )
             """)
+            # New: Cart table for persistent shopping cart
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS cart (
+                    cart_item_id TEXT PRIMARY KEY,
+                    user_id TEXT,
+                    product_id TEXT,
+                    quantity INTEGER DEFAULT 1,
+                    added_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, product_id)
+                )
+            """)
+            # Add inventory columns to products if they don't exist
+            try:
+                await db.execute("ALTER TABLE products ADD COLUMN stock_quantity INTEGER DEFAULT 100")
+            except:
+                pass
+            try:
+                await db.execute("ALTER TABLE products ADD COLUMN discount_percent REAL DEFAULT 0")
+            except:
+                pass
+            try:
+                await db.execute("ALTER TABLE products ADD COLUMN original_price REAL")
+            except:
+                pass
             await db.commit()
 
     # -------------------- POST (Create) --------------------
@@ -305,3 +334,182 @@ class ProductRepo:
             if not row:
                 return None
             return Coupon(coupon_code=row[0], discount_percent=row[1], expiry_date=row[2], status=row[3])
+
+    # -------------------- CART OPERATIONS --------------------
+    async def add_to_cart(self, cart_item: CartItem) -> None:
+        """Add item to cart or update quantity if already exists"""
+        async with aiosqlite.connect(self.db_path) as db:
+            # Check if item already in cart
+            cursor = await db.execute(
+                "SELECT cart_item_id, quantity FROM cart WHERE user_id = ? AND product_id = ?",
+                (cart_item.user_id, cart_item.product_id)
+            )
+            existing = await cursor.fetchone()
+            
+            if existing:
+                # Update quantity
+                new_quantity = existing[1] + cart_item.quantity
+                await db.execute(
+                    "UPDATE cart SET quantity = ? WHERE cart_item_id = ?",
+                    (new_quantity, existing[0])
+                )
+            else:
+                # Insert new item
+                await db.execute(
+                    "INSERT INTO cart (cart_item_id, user_id, product_id, quantity, added_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                    (cart_item.cart_item_id, cart_item.user_id, cart_item.product_id, cart_item.quantity)
+                )
+            await db.commit()
+
+    async def get_cart(self, user_id: str) -> List[CartItem]:
+        """Get all items in user's cart with product details"""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("""
+                SELECT c.cart_item_id, c.user_id, c.product_id, c.quantity, c.added_at,
+                       p.name, p.price, p.image, p.stock_quantity, p.discount_percent
+                FROM cart c
+                LEFT JOIN products p ON c.product_id = p.id
+                WHERE c.user_id = ?
+                ORDER BY c.added_at DESC
+            """, (user_id,))
+            rows = await cursor.fetchall()
+            items = []
+            for row in rows:
+                # Apply discount to price
+                price = row[6] or 0
+                discount = row[9] or 0
+                final_price = price * (1 - discount / 100)
+                items.append(CartItem(
+                    cart_item_id=row[0],
+                    user_id=row[1],
+                    product_id=row[2],
+                    quantity=row[3],
+                    added_at=row[4],
+                    product_name=row[5],
+                    product_price=round(final_price, 2),
+                    product_image=row[7]
+                ))
+            return items
+
+    async def update_cart_quantity(self, user_id: str, product_id: str, quantity: int) -> int:
+        """Update quantity of item in cart. Returns rows affected."""
+        async with aiosqlite.connect(self.db_path) as db:
+            if quantity <= 0:
+                # Remove item if quantity is 0 or negative
+                cursor = await db.execute(
+                    "DELETE FROM cart WHERE user_id = ? AND product_id = ?",
+                    (user_id, product_id)
+                )
+            else:
+                cursor = await db.execute(
+                    "UPDATE cart SET quantity = ? WHERE user_id = ? AND product_id = ?",
+                    (quantity, user_id, product_id)
+                )
+            await db.commit()
+            return cursor.rowcount
+
+    async def remove_from_cart(self, user_id: str, product_id: str) -> int:
+        """Remove item from cart. Returns rows affected."""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                "DELETE FROM cart WHERE user_id = ? AND product_id = ?",
+                (user_id, product_id)
+            )
+            await db.commit()
+            return cursor.rowcount
+
+    async def clear_cart(self, user_id: str) -> int:
+        """Clear all items from user's cart. Returns rows affected."""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("DELETE FROM cart WHERE user_id = ?", (user_id,))
+            await db.commit()
+            return cursor.rowcount
+
+    # -------------------- INVENTORY OPERATIONS --------------------
+    async def update_stock(self, product_id: str, quantity_change: int) -> bool:
+        """Update product stock. Negative for decrease, positive for increase."""
+        async with aiosqlite.connect(self.db_path) as db:
+            # Check current stock
+            cursor = await db.execute(
+                "SELECT stock_quantity FROM products WHERE id = ?", (product_id,)
+            )
+            row = await cursor.fetchone()
+            if not row:
+                return False
+            
+            current_stock = row[0] or 0
+            new_stock = current_stock + quantity_change
+            
+            if new_stock < 0:
+                return False  # Cannot have negative stock
+            
+            await db.execute(
+                "UPDATE products SET stock_quantity = ? WHERE id = ?",
+                (new_stock, product_id)
+            )
+            await db.commit()
+            return True
+
+    async def check_stock(self, product_id: str) -> dict:
+        """Check product stock availability"""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                "SELECT stock_quantity, name FROM products WHERE id = ?", (product_id,)
+            )
+            row = await cursor.fetchone()
+            if not row:
+                return {"available": False, "quantity": 0, "message": "Product not found"}
+            
+            stock = row[0] or 0
+            return {
+                "available": stock > 0,
+                "quantity": stock,
+                "product_name": row[1],
+                "message": "In stock" if stock > 0 else "Out of stock"
+            }
+
+    async def set_discount(self, product_id: str, discount_percent: float) -> bool:
+        """Set discount percentage for a product"""
+        async with aiosqlite.connect(self.db_path) as db:
+            # Get current price to save as original if not already set
+            cursor = await db.execute(
+                "SELECT price, original_price FROM products WHERE id = ?", (product_id,)
+            )
+            row = await cursor.fetchone()
+            if not row:
+                return False
+            
+            current_price = row[0]
+            original_price = row[1] or current_price
+            
+            # Calculate new discounted price
+            new_price = original_price * (1 - discount_percent / 100)
+            
+            await db.execute(
+                "UPDATE products SET price = ?, discount_percent = ?, original_price = ? WHERE id = ?",
+                (round(new_price, 2), discount_percent, original_price, product_id)
+            )
+            await db.commit()
+            return True
+
+    async def get_discounted_products(self) -> List[Product]:
+        """Get all products with active discounts"""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("""
+                SELECT id, name, categoryId, description, price, ratings, reviews, image, badge, 
+                       created_at, seller_id, stock_quantity, discount_percent, original_price
+                FROM products 
+                WHERE discount_percent > 0
+                ORDER BY discount_percent DESC
+            """)
+            rows = await cursor.fetchall()
+            products = []
+            for row in rows:
+                products.append(Product(
+                    id=row[0], name=row[1], categoryId=row[2], description=row[3],
+                    price=row[4], ratings=row[5], reviews=row[6], image=row[7],
+                    badge=row[8], created_at=row[9], seller_id=row[10],
+                    stock_quantity=row[11], discount_percent=row[12], original_price=row[13]
+                ))
+            return products
+

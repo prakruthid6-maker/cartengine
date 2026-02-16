@@ -1,10 +1,25 @@
 import ApiService from "../services/apiService.js";
+import { requireAuth, getUsername, logout } from "./auth.js";
 
 const AgentName = "techai_agent";
 let activeSessionId = null;
 let currentFile = null;
 // --- Initialization ---
 document.addEventListener("DOMContentLoaded", () => {
+  // Check authentication
+  if (!requireAuth()) return;
+  
+  // Add logout button to chat header
+  const nav = document.querySelector('header nav ul');
+  const logoutLi = document.createElement('li');
+  logoutLi.innerHTML = `<a href="#" id="logoutBtn"><i class="fa-solid fa-sign-out-alt"></i> Logout</a>`;
+  nav.appendChild(logoutLi);
+  
+  document.getElementById('logoutBtn').onclick = (e) => {
+    e.preventDefault();
+    logout();
+  };
+  
   initChat();
 });
 
@@ -249,8 +264,8 @@ async function sendMessage(text, attachedFile = null) {
     newMessage: { role: "user", parts },
     sessionId: activeSessionId,
     stateDelta: null,
-    streaming: false, // ✅ enable streaming
-    userId: "user",
+    streaming: false,
+    userId: getUsername(),
   };
 
   try {

@@ -1,0 +1,77 @@
+/* Card Component Styles */
+
+.card {
+    border-radius: var(--radius-xl);
+    transition: all var(--transition-normal);
+    position: relative;
+}
+
+/* Variants */
+.default {
+    background: var(--color-surface-1);
+    border: 1px solid var(--color-border-light);
+}
+
+.elevated {
+    background: var(--color-surface-1);
+    box-shadow: var(--shadow-lg);
+}
+
+.glass {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+}
+
+.outlined {
+    background: transparent;
+    border: 2px solid var(--color-border-default);
+}
+
+/* Padding */
+.padding-none {
+    padding: 0;
+}
+
+.padding-sm {
+    padding: var(--space-4);
+}
+
+.padding-md {
+    padding: var(--space-6);
+}
+
+.padding-lg {
+    padding: var(--space-8);
+}
+
+/* Hoverable */
+.hoverable {
+    cursor: pointer;
+}
+
+.hoverable:hover {
+    box-shadow: var(--shadow-xl), var(--shadow-glow);
+    border-color: var(--color-border-focus);
+}
+
+/* Sub-components */
+.cardHeader {
+    padding-bottom: var(--space-4);
+    border-bottom: 1px solid var(--color-border-light);
+    margin-bottom: var(--space-4);
+}
+
+.cardContent {
+    flex: 1;
+}
+
+.cardFooter {
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--color-border-light);
+    margin-top: var(--space-4);
+    display: flex;
+    gap: var(--space-3);
+    justify-content: flex-end;
+}

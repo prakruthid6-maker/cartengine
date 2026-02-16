@@ -1,0 +1,136 @@
+/* Product Grid Styles */
+
+.container {
+    padding: var(--space-6) 0;
+}
+
+/* Standard Grid Layout */
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--space-6);
+}
+
+/* Masonry Layout (CSS Columns) */
+.masonry {
+    columns: 4 280px;
+    column-gap: var(--space-6);
+}
+
+.masonry .item {
+    break-inside: avoid;
+    margin-bottom: var(--space-6);
+}
+
+/* Grid Item Animation */
+.item {
+    animation: fadeSlideUp 0.4s ease-out both;
+}
+
+@keyframes fadeSlideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Loading Skeleton */
+.skeleton {
+    background: var(--color-surface-1);
+    border-radius: var(--radius-2xl);
+    overflow: hidden;
+    border: 1px solid var(--color-border-light);
+}
+
+.skeletonImage {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    background: linear-gradient(90deg,
+            var(--color-surface-2) 0%,
+            var(--color-surface-3) 50%,
+            var(--color-surface-2) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+}
+
+.skeletonContent {
+    padding: var(--space-5);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.skeletonLine {
+    height: 16px;
+    background: linear-gradient(90deg,
+            var(--color-surface-2) 0%,
+            var(--color-surface-3) 50%,
+            var(--color-surface-2) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: var(--radius-sm);
+}
+
+@keyframes shimmer {
+    0% {
+        background-position: 200% 0;
+    }
+
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+/* Empty State */
+.empty {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-16);
+    text-align: center;
+}
+
+.emptyIcon {
+    font-size: 4rem;
+    margin-bottom: var(--space-4);
+    opacity: 0.5;
+}
+
+.empty h3 {
+    font-size: var(--text-xl);
+    color: var(--color-text-primary);
+    margin-bottom: var(--space-2);
+}
+
+.empty p {
+    font-size: var(--text-base);
+    color: var(--color-text-muted);
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+    .grid {
+        grid-template-columns: 1fr;
+    }
+
+    .masonry {
+        columns: 1;
+    }
+}
+
+@media (min-width: 641px) and (max-width: 1024px) {
+    .grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .masonry {
+        columns: 2;
+    }
+}

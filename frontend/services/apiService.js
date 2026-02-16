@@ -1,5 +1,5 @@
 const API_CONFIG = {
-  baseURL: "https://8080-kode-ws-4b191181a.hebbale.academy", // Configure the relevant backend url
+  baseURL: "http://localhost:8080", // Configure the relevant backend url
   headers: {
   "Content-Type": "application/json",
   },

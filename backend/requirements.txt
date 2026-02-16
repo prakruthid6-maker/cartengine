@@ -1,12 +1,34 @@
-fastapi
+# Core FastAPI
+fastapi>=0.109.0
 uvicorn[standard]
-python-dotenv
-azure-search-documents
-openai
-aiohttp
-requests
+
+# Authentication
+python-jose[cryptography]
+passlib[bcrypt]
+bcrypt
+
+# Database
+aiosqlite
+sqlalchemy[asyncio]
+
+# AI & LLM
 google-adk
+langchain
+langchain-google-genai
+openai
+
+# Utils
 python-dotenv
 python-multipart
-google-api-python-client 
-aiosqlite
+aiohttp
+requests
+httpx
+
+# Azure (existing)
+azure-search-documents
+
+# Google Services
+google-api-python-client
+
+# Rate limiting
+slowapi

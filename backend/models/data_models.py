@@ -15,6 +15,12 @@ class Product(BaseModel):
     badge: str
     created_at: Optional[str] = None
     seller_id: Optional[str] = None
+    # New fields for inventory and discounts
+    stock_quantity: Optional[int] = 100  # Default stock
+    discount_percent: Optional[float] = 0.0  # Discount percentage (0-100)
+    original_price: Optional[float] = None  # Original price before discount
+    sku: Optional[str] = None  # Stock Keeping Unit
+    specifications: Optional[str] = None  # JSON string of specifications
 
 class Seller(BaseModel):
     seller_id: str
@@ -67,6 +73,24 @@ class Coupon(BaseModel):
     expiry_date: str
     status: str
 
+# New: Cart Item model for persistent cart storage
+class CartItem(BaseModel):
+    cart_item_id: str
+    user_id: str
+    product_id: str
+    quantity: int
+    added_at: Optional[str] = None
+    # Denormalized fields for quick access
+    product_name: Optional[str] = None
+    product_price: Optional[float] = None
+    product_image: Optional[str] = None
 
-
-
+# New: Cart summary model
+class Cart(BaseModel):
+    user_id: str
+    items: List[CartItem] = []
+    total_items: int = 0
+    subtotal: float = 0.0
+    discount_amount: float = 0.0
+    total_price: float = 0.0
+    applied_coupon: Optional[str] = None

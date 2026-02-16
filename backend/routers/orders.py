@@ -88,8 +88,9 @@ async def cancel_order_api(order_id: str):
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     
-    if order.get('status') in ['Delivered', 'Cancelled']:
-        raise HTTPException(status_code=400, detail=f"Cannot cancel order with status: {order.get('status')}")
+    # Fixed: order is an Order object, not a dict - use .status instead of .get('status')
+    if order.status in ['Delivered', 'Cancelled']:
+        raise HTTPException(status_code=400, detail=f"Cannot cancel order with status: {order.status}")
     
     await product_repo.update_order_status(order_id, 'Cancelled')
     

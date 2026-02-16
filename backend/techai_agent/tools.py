@@ -1,6 +1,6 @@
 import requests, os, random, json
 from typing import Dict, List, Optional
-from models.data_models import Product, Seller, Order, Payment, OrderTracking, Wishlist, Review, Coupon
+from models.data_models import Product, Seller, Order, Payment, OrderTracking, Wishlist, Review, Coupon, CartItem, Cart
 from services.product_service import ProductService
 from repos.products_repo import ProductRepo
 import uuid
@@ -17,7 +17,20 @@ async def search_products_by_category(category: str) -> dict:
     """Search products by category (Electronics, Fashion, Home, Sports, Clothing, Books, etc)."""
     products = await product_service.get_products_by_query("SELECT * FROM c")
     filtered = [p for p in products if p.categoryId == category]
-    return {"category": category, "result_count": len(filtered), "products": [{"id": p.id, "name": p.name, "price": p.price, "rating": p.ratings} for p in filtered]}
+    return {
+        "category": category, 
+        "result_count": len(filtered), 
+        "products": [
+            {
+                "id": p.id, 
+                "name": p.name, 
+                "price": p.price, 
+                "rating": p.ratings,
+                "image": p.image or "",
+                "description": p.description or ""
+            } for p in filtered
+        ]
+    }
 
 async def filter_products_by_price(min_price: float, max_price: float) -> dict:
     """Filter products within a price range."""
@@ -32,36 +45,168 @@ async def get_top_rated_products(min_rating: float = 4.0) -> dict:
     return await product_service.get_products_by_query(f"SELECT * FROM c WHERE rating >= {min_rating} ORDER BY rating DESC")
 
 async def get_products_on_sale() -> dict:
-    """Get products currently on sale or with deals."""
-    return await product_service.get_products_by_query("SELECT * FROM c WHERE discount > 0 OR on_sale = true")
+    """Get products currently on sale or with active discounts."""
+    await product_repo.init_db()
+    products = await product_repo.get_discounted_products()
+    return {
+        "sale_count": len(products),
+        "products": [{"id": p.id, "name": p.name, "price": p.price, "original_price": p.original_price, "discount_percent": p.discount_percent, "savings": round((p.original_price or p.price) - p.price, 2)} for p in products]
+    }
 
-def add_to_cart(product_id: str, quantity: int = 1) -> dict:
-    """Add a product to the shopping cart."""
-    return {"status": "success", "message": f"Added {quantity} item(s) to cart", "product_id": product_id}
+# ============ PERSISTENT CART FUNCTIONS (FIXED) ============
 
-def get_cart_summary() -> dict:
-    """Get current shopping cart summary."""
-    return {"items": [], "total_items": 0, "total_price": 0.0, "message": "Cart is empty"}
+async def add_to_cart(product_id: str, user_id: str = "guest", quantity: int = 1) -> dict:
+    """Add a product to the shopping cart. Cart persists in database."""
+    await product_repo.init_db()
+    
+    # Check if product exists and has stock
+    stock_info = await product_repo.check_stock(product_id)
+    if not stock_info["available"]:
+        return {"status": "error", "message": f"Product is out of stock"}
+    
+    if stock_info["quantity"] < quantity:
+        return {"status": "error", "message": f"Only {stock_info['quantity']} items available"}
+    
+    # Create cart item
+    cart_item = CartItem(
+        cart_item_id=f"CART-{uuid.uuid4().hex[:8].upper()}",
+        user_id=user_id,
+        product_id=product_id,
+        quantity=quantity
+    )
+    await product_repo.add_to_cart(cart_item)
+    
+    return {"status": "success", "message": f"Added {quantity} x {stock_info['product_name']} to cart", "product_id": product_id, "user_id": user_id}
+
+async def get_cart_summary(user_id: str = "guest") -> dict:
+    """Get current shopping cart summary with all items and totals."""
+    await product_repo.init_db()
+    items = await product_repo.get_cart(user_id)
+    
+    if not items:
+        return {"user_id": user_id, "items": [], "total_items": 0, "subtotal": 0.0, "total_price": 0.0, "message": "Cart is empty"}
+    
+    total_items = sum(item.quantity for item in items)
+    subtotal = sum((item.product_price or 0) * item.quantity for item in items)
+    
+    return {
+        "user_id": user_id,
+        "items": [{"product_id": item.product_id, "name": item.product_name, "quantity": item.quantity, "unit_price": item.product_price, "line_total": round((item.product_price or 0) * item.quantity, 2)} for item in items],
+        "total_items": total_items,
+        "subtotal": round(subtotal, 2),
+        "total_price": round(subtotal, 2),
+        "message": f"Cart has {total_items} item(s)"
+    }
+
+async def update_cart_item(product_id: str, quantity: int, user_id: str = "guest") -> dict:
+    """Update quantity of an item in cart. Set quantity to 0 to remove."""
+    await product_repo.init_db()
+    result = await product_repo.update_cart_quantity(user_id, product_id, quantity)
+    if result > 0:
+        if quantity <= 0:
+            return {"status": "success", "message": "Item removed from cart"}
+        return {"status": "success", "message": f"Quantity updated to {quantity}"}
+    return {"status": "error", "message": "Item not found in cart"}
+
+async def remove_from_cart_tool(product_id: str, user_id: str = "guest") -> dict:
+    """Remove an item from the shopping cart."""
+    await product_repo.init_db()
+    result = await product_repo.remove_from_cart(user_id, product_id)
+    if result > 0:
+        return {"status": "success", "message": "Item removed from cart"}
+    return {"status": "error", "message": "Item not found in cart"}
+
+async def clear_cart_tool(user_id: str = "guest") -> dict:
+    """Clear all items from the shopping cart."""
+    await product_repo.init_db()
+    count = await product_repo.clear_cart(user_id)
+    return {"status": "success", "message": f"Removed {count} item(s) from cart", "items_removed": count}
+
+# ============ INVENTORY FUNCTIONS (FIXED) ============
+
+async def check_product_availability(product_id: str) -> dict:
+    """Check if a product is in stock with real inventory data."""
+    await product_repo.init_db()
+    return await product_repo.check_stock(product_id)
+
+async def update_inventory_tool(product_id: str, quantity_change: int) -> dict:
+    """Update product inventory. Use negative values to decrease stock."""
+    await product_repo.init_db()
+    success = await product_repo.update_stock(product_id, quantity_change)
+    if success:
+        new_stock = await product_repo.check_stock(product_id)
+        return {"status": "success", "product_id": product_id, "new_stock": new_stock["quantity"], "message": f"Stock updated by {quantity_change}"}
+    return {"status": "error", "message": "Failed to update stock. Product not found or insufficient stock."}
+
+async def set_product_discount(product_id: str, discount_percent: float) -> dict:
+    """Set a discount percentage for a product (0-100)."""
+    await product_repo.init_db()
+    if discount_percent < 0 or discount_percent > 100:
+        return {"status": "error", "message": "Discount must be between 0 and 100"}
+    success = await product_repo.set_discount(product_id, discount_percent)
+    if success:
+        return {"status": "success", "product_id": product_id, "discount_percent": discount_percent, "message": f"Discount of {discount_percent}% applied"}
+    return {"status": "error", "message": "Product not found"}
 
 def compare_products(product_ids: List[str]) -> dict:
-    """Compare multiple products side by side."""
+    """Compare multiple products side by side (basic version)."""
     return {"comparison": f"Comparing {len(product_ids)} products", "product_ids": product_ids}
-
-def check_product_availability(product_id: str) -> dict:
-    """Check if a product is in stock."""
-    return {"product_id": product_id, "in_stock": True, "quantity": random.randint(1, 50)}
 
 def get_shipping_info(product_id: str, zip_code: Optional[str] = None) -> dict:
     """Get shipping information for a product."""
-    return {"product_id": product_id, "shipping_cost": 5.99, "estimated_delivery": "3-5 business days"}
+    # Calculate shipping based on zip code distance (simplified)
+    base_cost = 5.99
+    days = "3-5"
+    if zip_code:
+        # Premium zip codes get faster shipping
+        if zip_code.startswith(("1", "2", "3")):
+            days = "1-2"
+            base_cost = 9.99
+        elif zip_code.startswith(("4", "5", "6")):
+            days = "2-3"
+            base_cost = 7.99
+    return {"product_id": product_id, "zip_code": zip_code, "shipping_cost": base_cost, "estimated_delivery": f"{days} business days", "free_shipping_eligible": base_cost < 8}
 
-def apply_coupon(coupon_code: str) -> dict:
-    """Apply a coupon code to the current order."""
-    return {"coupon_code": coupon_code, "discount": "10%", "status": "applied"}
+async def apply_coupon(coupon_code: str, user_id: str = "guest") -> dict:
+    """Apply a coupon code to the current cart."""
+    await product_repo.init_db()
+    coupon = await product_repo.get_coupon(coupon_code)
+    if not coupon:
+        return {"valid": False, "message": "Invalid coupon code"}
+    
+    # Check expiry
+    from datetime import datetime
+    try:
+        expiry = datetime.fromisoformat(coupon.expiry_date)
+        if expiry < datetime.now():
+            return {"valid": False, "message": "Coupon has expired"}
+    except:
+        pass
+    
+    if coupon.status != "active":
+        return {"valid": False, "message": "Coupon is not active"}
+    
+    # Get cart and apply discount
+    cart = await get_cart_summary(user_id)
+    if cart["total_items"] == 0:
+        return {"valid": False, "message": "Cart is empty"}
+    
+    discount_amount = cart["subtotal"] * (coupon.discount_percent / 100)
+    new_total = cart["subtotal"] - discount_amount
+    
+    return {
+        "valid": True,
+        "coupon_code": coupon_code,
+        "discount_percent": coupon.discount_percent,
+        "discount_amount": round(discount_amount, 2),
+        "original_total": cart["subtotal"],
+        "new_total": round(new_total, 2),
+        "message": f"Coupon applied! You saved ${round(discount_amount, 2)}"
+    }
 
-async def add_new_product(product_id: str, name: str, category: str, description: str, price: float, ratings: float = 0.0, reviews: int = 0, image: str = "", badge: str = ""):
-    """Add a new product to the catalog."""
-    product = Product(id=product_id, name=name, categoryId=category, description=description, price=price, ratings=ratings, reviews=reviews, image=image, badge=badge)
+async def add_new_product(product_id: str, name: str, category: str, description: str, price: float, ratings: float = 0.0, reviews: int = 0, image: str = "", badge: str = "", stock_quantity: int = 100):
+    """Add a new product to the catalog with inventory."""
+    product = Product(id=product_id, name=name, categoryId=category, description=description, price=price, ratings=ratings, reviews=reviews, image=image, badge=badge, stock_quantity=stock_quantity)
     return await product_service.create_product(product)
 
 async def delete_product(product_id: str, category: str):
@@ -287,8 +432,21 @@ async def recommend_products_by_budget(budget: float, category: Optional[str] = 
     filtered = [p for p in products if p.price <= budget]
     if category:
         filtered = [p for p in filtered if p.categoryId == category]
-    sorted_products = sorted(filtered, key=lambda p: p.ratings, reverse=True)[:5]
-    return {"budget": budget, "category": category, "recommendations": [{"id": p.id, "name": p.name, "price": p.price, "rating": p.ratings} for p in sorted_products]}
+    sorted_products = sorted(filtered, key=lambda p: p.ratings, reverse=True)[:10]
+    return {
+        "budget": budget, 
+        "category": category, 
+        "recommendations": [
+            {
+                "id": p.id, 
+                "name": p.name, 
+                "price": p.price, 
+                "rating": p.ratings,
+                "image": p.image or "",
+                "description": p.description or ""
+            } for p in sorted_products
+        ]
+    }
 
 async def recommend_similar_products(product_id: str) -> dict:
     """Recommend similar products based on category and price range."""
@@ -385,13 +543,13 @@ async def search_products_advanced(query: str, min_price: Optional[float] = None
         filtered = [p for p in filtered if p.ratings >= min_rating]
     if category:
         filtered = [p for p in filtered if p.categoryId == category]
-    return {"query": query, "result_count": len(filtered), "products": [{"id": p.id, "name": p.name, "price": p.price, "rating": p.ratings} for p in filtered[:20]]}
+    return {"query": query, "result_count": len(filtered), "products": [{"id": p.id, "name": p.name, "price": p.price, "rating": p.ratings, "image": p.image or "", "description": p.description or ""} for p in filtered[:20]]}
 
 async def get_trending_products() -> dict:
     """Get trending products based on ratings and reviews."""
     products = await product_service.get_products_by_query("SELECT * FROM c")
     trending = sorted(products, key=lambda p: (p.ratings * p.reviews), reverse=True)[:10]
-    return {"trending_products": [{"id": p.id, "name": p.name, "price": p.price, "rating": p.ratings, "reviews": p.reviews} for p in trending]}
+    return {"trending_products": [{"id": p.id, "name": p.name, "price": p.price, "rating": p.ratings, "reviews": p.reviews, "image": p.image or "", "description": p.description or ""} for p in trending]}
 
 async def cancel_order_tool(order_id: str) -> dict:
     """Cancel an order if it hasn't been delivered yet."""
@@ -416,7 +574,7 @@ async def filter_products_by_category_and_price(category: Optional[str] = None, 
         filtered = [p for p in filtered if p.price <= max_price]
     if badge:
         filtered = [p for p in filtered if p.badge == badge]
-    return {"filters": {"category": category, "min_price": min_price, "max_price": max_price, "badge": badge}, "result_count": len(filtered), "products": [{"id": p.id, "name": p.name, "category": p.categoryId, "price": p.price, "rating": p.ratings, "badge": p.badge} for p in filtered]}
+    return {"filters": {"category": category, "min_price": min_price, "max_price": max_price, "badge": badge}, "result_count": len(filtered), "products": [{"id": p.id, "name": p.name, "category": p.categoryId, "price": p.price, "rating": p.ratings, "badge": p.badge, "image": p.image or "", "description": p.description or ""} for p in filtered]}
 
 async def get_all_categories() -> dict:
     """Get list of all product categories."""
