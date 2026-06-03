@@ -176,7 +176,7 @@ export function ProductDetailModal({
                                                     <span className={styles.specLabel}>
                                                         {key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
                                                     </span>
-                                                    <span className={styles.specValue}>{value}</span>
+                                                    <span className={styles.specValue}>{String(value)}</span>
                                                 </div>
                                             ))}
                                         </div>
