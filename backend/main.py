@@ -53,10 +53,11 @@ app = get_fast_api_app(
 
 # Add explicit CORS middleware to ensure ALL responses have CORS headers
 # (including redirect responses that the ADK's built-in CORS may miss)
+# Note: allow_credentials must be False when using wildcard origins per CORS spec
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
