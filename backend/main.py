@@ -36,7 +36,8 @@ ALLOWED_ORIGINS = [
     "http://localhost:8080",     # FastAPI dev
     "http://127.0.0.1:3000",
     "http://127.0.0.1:8080",
-    "https://cartengine-zgwc.vercel.app",  # Vercel production
+    "https://cartengine-zgwc.vercel.app",  # Vercel production (old)
+    "https://cartenginenew.vercel.app",    # Vercel production (new)
     "*",  # Allow all origins for deployment
 ]
 
@@ -48,6 +49,17 @@ app = get_fast_api_app(
     agents_dir=AGENT_DIR,
     allow_origins=ALLOWED_ORIGINS,
     web=SERVE_WEB_INTERFACE,
+)
+
+# Add explicit CORS middleware to ensure ALL responses have CORS headers
+# (including redirect responses that the ADK's built-in CORS may miss)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 
