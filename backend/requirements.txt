@@ -33,6 +33,5 @@ google-api-python-client
 # Rate limiting
 slowapi
 
-# Firebase / Firestore
-google-cloud-firestore>=2.14.0
-google-auth>=2.25.0
+# Supabase / PostgreSQL
+asyncpg>=0.29.0

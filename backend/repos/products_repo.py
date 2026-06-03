@@ -6,7 +6,7 @@ import json
 import uuid
 from datetime import datetime
 
-# Optional Firebase SDK Imports to ensure local development without Firebase doesn't crash
+# Optional Firebase SDK Imports
 try:
     from google.oauth2 import service_account
     from google.cloud import firestore
@@ -14,9 +14,505 @@ try:
 except ImportError:
     HAS_FIRESTORE = False
 
+# Optional PostgreSQL SDK Imports
+try:
+    import asyncpg
+    HAS_ASYNCPG = True
+except ImportError:
+    HAS_ASYNCPG = False
+
 
 # =====================================================================
-# Firestore Implementation
+# Database Helpers for PostgreSQL DateTime Conversions
+# =====================================================================
+
+def format_row(row) -> Optional[dict]:
+    if row is None:
+        return None
+    d = dict(row)
+    for k, v in d.items():
+        if isinstance(v, datetime):
+            d[k] = v.isoformat()
+    return d
+
+def format_rows(rows) -> List[dict]:
+    return [format_row(row) for row in rows]
+
+
+# =====================================================================
+# PostgreSQL / Supabase Implementation
+# =====================================================================
+
+class PostgresProductRepo:
+    def __init__(self, db_url: str):
+        # asyncpg requires postgresql:// format
+        if db_url.startswith("postgres://"):
+            db_url = db_url.replace("postgres://", "postgresql://", 1)
+        self.db_url = db_url
+        self._pool = None
+
+    async def _get_pool(self):
+        if self._pool is None:
+            self._pool = await asyncpg.create_pool(self.db_url)
+        return self._pool
+
+    async def init_db(self):
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            # Enforce case sensitivity by using double quotes around categoryId
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS products (
+                    id TEXT PRIMARY KEY,
+                    name TEXT,
+                    "categoryId" TEXT,
+                    description TEXT,
+                    price DOUBLE PRECISION,
+                    ratings DOUBLE PRECISION,
+                    reviews DOUBLE PRECISION,
+                    image TEXT,
+                    badge TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    seller_id TEXT,
+                    stock_quantity INTEGER DEFAULT 100,
+                    discount_percent DOUBLE PRECISION DEFAULT 0,
+                    original_price DOUBLE PRECISION,
+                    sku TEXT,
+                    specifications TEXT
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS sellers (
+                    seller_id TEXT PRIMARY KEY,
+                    name TEXT,
+                    location TEXT,
+                    rating DOUBLE PRECISION
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS orders (
+                    order_id TEXT PRIMARY KEY,
+                    product_id TEXT,
+                    user_id TEXT,
+                    quantity INTEGER,
+                    total_price DOUBLE PRECISION,
+                    status TEXT,
+                    delivery_address TEXT,
+                    order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS payments (
+                    payment_id TEXT PRIMARY KEY,
+                    order_id TEXT,
+                    amount DOUBLE PRECISION,
+                    method TEXT,
+                    status TEXT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS order_tracking (
+                    tracking_id TEXT PRIMARY KEY,
+                    order_id TEXT,
+                    status TEXT,
+                    location TEXT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS wishlist (
+                    wishlist_id TEXT PRIMARY KEY,
+                    user_id TEXT,
+                    product_id TEXT,
+                    added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS reviews (
+                    review_id TEXT PRIMARY KEY,
+                    product_id TEXT,
+                    user_id TEXT,
+                    rating DOUBLE PRECISION,
+                    comment TEXT,
+                    review_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS coupons (
+                    coupon_code TEXT PRIMARY KEY,
+                    discount_percent DOUBLE PRECISION,
+                    expiry_date TEXT,
+                    status TEXT
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS cart (
+                    cart_item_id TEXT PRIMARY KEY,
+                    user_id TEXT,
+                    product_id TEXT,
+                    quantity INTEGER DEFAULT 1,
+                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, product_id)
+                )
+            """)
+
+    # -------------------- PRODUCTS --------------------
+    async def insert_product(self, product: Product) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO products (id, name, "categoryId", description, price, ratings, reviews, image, badge, seller_id, stock_quantity, discount_percent, original_price, sku, specifications)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                ON CONFLICT (id) DO NOTHING
+            """, product.id, product.name, product.categoryId, product.description, product.price, product.ratings, product.reviews, product.image, product.badge, product.seller_id, product.stock_quantity, product.discount_percent, product.original_price, product.sku, product.specifications)
+
+    async def update_product(self, product: Product) -> int:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute("""
+                UPDATE products
+                SET name = $1, description = $2, price = $3, ratings = $4, reviews = $5, image = $6, badge = $7, seller_id = $8, stock_quantity = $9, discount_percent = $10, original_price = $11, sku = $12, specifications = $13
+                WHERE id = $14 AND "categoryId" = $15
+            """, product.name, product.description, product.price, product.ratings, product.reviews, product.image, product.badge, product.seller_id, product.stock_quantity, product.discount_percent, product.original_price, product.sku, product.specifications, product.id, product.categoryId)
+            if result.startswith("UPDATE "):
+                return int(result.split(" ")[1])
+            return 0
+
+    async def get_product(self, product_id: str, category_id: str) -> Optional[Product]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT id, name, "categoryId", description, price, ratings, reviews, image, badge, created_at, seller_id, stock_quantity, discount_percent, original_price, sku, specifications
+                FROM products
+                WHERE id = $1 AND "categoryId" = $2
+            """, product_id, category_id)
+            if row:
+                return Product(**format_row(row))
+            return None
+
+    async def delete_product(self, product_id: str, category_id: str) -> int:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute("""
+                DELETE FROM products WHERE id = $1 AND "categoryId" = $2
+            """, product_id, category_id)
+            if result.startswith("DELETE "):
+                return int(result.split(" ")[1])
+            return 0
+
+    async def get_all_products(self) -> List[Product]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT id, name, "categoryId", description, price, ratings, reviews, image, badge, created_at, seller_id, stock_quantity, discount_percent, original_price, sku, specifications
+                FROM products
+            """)
+            return [Product(**format_row(row)) for row in rows]
+
+    # -------------------- SELLERS --------------------
+    async def insert_seller(self, seller: Seller) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO sellers (seller_id, name, location, rating)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (seller_id) DO NOTHING
+            """, seller.seller_id, seller.name, seller.location, seller.rating)
+
+    async def get_all_sellers(self) -> List[Seller]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("SELECT seller_id, name, location, rating FROM sellers")
+            return [Seller(**format_row(row)) for row in rows]
+
+    # -------------------- ORDERS --------------------
+    async def insert_order(self, order: Order) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO orders (order_id, product_id, user_id, quantity, total_price, status, delivery_address)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                ON CONFLICT (order_id) DO NOTHING
+            """, order.order_id, order.product_id, order.user_id, order.quantity, order.total_price, order.status, order.delivery_address)
+
+    async def get_order(self, order_id: str) -> Optional[Order]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT order_id, product_id, user_id, quantity, total_price, status, delivery_address, order_date
+                FROM orders WHERE order_id = $1
+            """, order_id)
+            if row:
+                return Order(**format_row(row))
+            return None
+
+    async def get_user_orders(self, user_id: str) -> List[Order]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT order_id, product_id, user_id, quantity, total_price, status, delivery_address, order_date
+                FROM orders WHERE user_id = $1 ORDER BY order_date DESC
+            """, user_id)
+            return [Order(**format_row(row)) for row in rows]
+
+    async def update_order_status(self, order_id: str, status: str) -> int:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute("""
+                UPDATE orders SET status = $1 WHERE order_id = $2
+            """, status, order_id)
+            if result.startswith("UPDATE "):
+                return int(result.split(" ")[1])
+            return 0
+
+    # -------------------- PAYMENTS --------------------
+    async def insert_payment(self, payment: Payment) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO payments (payment_id, order_id, amount, method, status)
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT (payment_id) DO NOTHING
+            """, payment.payment_id, payment.order_id, payment.amount, payment.method, payment.status)
+
+    async def get_payment(self, order_id: str) -> Optional[Payment]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT payment_id, order_id, amount, method, status, timestamp
+                FROM payments WHERE order_id = $1
+            """, order_id)
+            if row:
+                return Payment(**format_row(row))
+            return None
+
+    # -------------------- ORDER TRACKING --------------------
+    async def insert_tracking(self, tracking: OrderTracking) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO order_tracking (tracking_id, order_id, status, location)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (tracking_id) DO NOTHING
+            """, tracking.tracking_id, tracking.order_id, tracking.status, tracking.location)
+
+    async def get_tracking_history(self, order_id: str) -> List[OrderTracking]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT tracking_id, order_id, status, location, timestamp
+                FROM order_tracking WHERE order_id = $1 ORDER BY timestamp DESC
+            """, order_id)
+            return [OrderTracking(**format_row(row)) for row in rows]
+
+    # -------------------- WISHLIST --------------------
+    async def add_to_wishlist(self, wishlist: Wishlist) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO wishlist (wishlist_id, user_id, product_id)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (wishlist_id) DO NOTHING
+            """, wishlist.wishlist_id, wishlist.user_id, wishlist.product_id)
+
+    async def get_wishlist(self, user_id: str) -> List[Wishlist]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT wishlist_id, user_id, product_id, added_date
+                FROM wishlist WHERE user_id = $1
+            """, user_id)
+            return [Wishlist(**format_row(row)) for row in rows]
+
+    async def remove_from_wishlist(self, user_id: str, product_id: str) -> int:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute("""
+                DELETE FROM wishlist WHERE user_id = $1 AND product_id = $2
+            """, user_id, product_id)
+            if result.startswith("DELETE "):
+                return int(result.split(" ")[1])
+            return 0
+
+    # -------------------- REVIEWS --------------------
+    async def add_review(self, review: Review) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO reviews (review_id, product_id, user_id, rating, comment)
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT (review_id) DO NOTHING
+            """, review.review_id, review.product_id, review.user_id, review.rating, review.comment)
+
+    async def get_product_reviews(self, product_id: str) -> List[Review]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT review_id, product_id, user_id, rating, comment, review_date
+                FROM reviews WHERE product_id = $1 ORDER BY review_date DESC
+            """, product_id)
+            return [Review(**format_row(row)) for row in rows]
+
+    # -------------------- COUPONS --------------------
+    async def insert_coupon(self, coupon: Coupon) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO coupons (coupon_code, discount_percent, expiry_date, status)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (coupon_code) DO NOTHING
+            """, coupon.coupon_code, coupon.discount_percent, coupon.expiry_date, coupon.status)
+
+    async def get_coupon(self, coupon_code: str) -> Optional[Coupon]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT coupon_code, discount_percent, expiry_date, status
+                FROM coupons WHERE coupon_code = $1
+            """, coupon_code)
+            if row:
+                return Coupon(**format_row(row))
+            return None
+
+    # -------------------- CART --------------------
+    async def add_to_cart(self, cart_item: CartItem) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO cart (cart_item_id, user_id, product_id, quantity)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (user_id, product_id)
+                DO UPDATE SET quantity = cart.quantity + EXCLUDED.quantity
+            """, cart_item.cart_item_id, cart_item.user_id, cart_item.product_id, cart_item.quantity)
+
+    async def get_cart(self, user_id: str) -> List[CartItem]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT c.cart_item_id, c.user_id, c.product_id, c.quantity, c.added_at,
+                       p.name, p.price, p.image, p.stock_quantity, p.discount_percent
+                FROM cart c
+                LEFT JOIN products p ON c.product_id = p.id
+                WHERE c.user_id = $1
+                ORDER BY c.added_at DESC
+            """, user_id)
+            items = []
+            for row in rows:
+                p_dict = format_row(row)
+                price = p_dict.get("price") or 0.0
+                discount = p_dict.get("discount_percent") or 0.0
+                final_price = price * (1 - discount / 100)
+                items.append(CartItem(
+                    cart_item_id=p_dict["cart_item_id"],
+                    user_id=p_dict["user_id"],
+                    product_id=p_dict["product_id"],
+                    quantity=p_dict["quantity"],
+                    added_at=p_dict["added_at"],
+                    product_name=p_dict["name"],
+                    product_price=round(final_price, 2),
+                    product_image=p_dict["image"]
+                ))
+            return items
+
+    async def update_cart_quantity(self, user_id: str, product_id: str, quantity: int) -> int:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            if quantity <= 0:
+                result = await conn.execute("""
+                    DELETE FROM cart WHERE user_id = $1 AND product_id = $2
+                """, user_id, product_id)
+                if result.startswith("DELETE "):
+                    return int(result.split(" ")[1])
+            else:
+                result = await conn.execute("""
+                    UPDATE cart SET quantity = $1 WHERE user_id = $2 AND product_id = $3
+                """, quantity, user_id, product_id)
+                if result.startswith("UPDATE "):
+                    return int(result.split(" ")[1])
+            return 0
+
+    async def remove_from_cart(self, user_id: str, product_id: str) -> int:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute("""
+                DELETE FROM cart WHERE user_id = $1 AND product_id = $2
+            """, user_id, product_id)
+            if result.startswith("DELETE "):
+                return int(result.split(" ")[1])
+            return 0
+
+    async def clear_cart(self, user_id: str) -> int:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute("""
+                DELETE FROM cart WHERE user_id = $1
+            """, user_id)
+            if result.startswith("DELETE "):
+                return int(result.split(" ")[1])
+            return 0
+
+    # -------------------- INVENTORY / STOCK / DISCOUNT --------------------
+    async def update_stock(self, product_id: str, quantity_change: int) -> bool:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute("""
+                UPDATE products 
+                SET stock_quantity = stock_quantity + $1 
+                WHERE id = $2 AND stock_quantity + $1 >= 0
+            """, quantity_change, product_id)
+            if result.startswith("UPDATE "):
+                return int(result.split(" ")[1]) > 0
+            return False
+
+    async def check_stock(self, product_id: str) -> dict:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT stock_quantity, name FROM products WHERE id = $1", product_id)
+            if not row:
+                return {"available": False, "quantity": 0, "message": "Product not found"}
+            data = format_row(row)
+            stock = data.get("stock_quantity") or 0
+            return {
+                "available": stock > 0,
+                "quantity": stock,
+                "product_name": data.get("name", "Unknown Product"),
+                "message": "In stock" if stock > 0 else "Out of stock"
+            }
+
+    async def set_discount(self, product_id: str, discount_percent: float) -> bool:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT price, original_price FROM products WHERE id = $1", product_id)
+            if not row:
+                return False
+            data = format_row(row)
+            current_price = data.get("price") or 0.0
+            original_price = data.get("original_price") or current_price
+            new_price = original_price * (1 - discount_percent / 100)
+            
+            result = await conn.execute("""
+                UPDATE products 
+                SET price = $1, discount_percent = $2, original_price = $3 
+                WHERE id = $4
+            """, round(new_price, 2), discount_percent, original_price, product_id)
+            if result.startswith("UPDATE "):
+                return int(result.split(" ")[1]) > 0
+            return False
+
+    async def get_discounted_products(self) -> List[Product]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT id, name, "categoryId", description, price, ratings, reviews, image, badge, created_at, seller_id, stock_quantity, discount_percent, original_price, sku, specifications
+                FROM products 
+                WHERE discount_percent > 0
+                ORDER BY discount_percent DESC
+            """)
+            return [Product(**format_row(row)) for row in rows]
+
+
+# =====================================================================
+# Firebase / Firestore Implementation
 # =====================================================================
 
 class FirestoreProductRepo:
@@ -56,7 +552,6 @@ class FirestoreProductRepo:
         doc = await self.db.collection("products").document(product_id).get()
         if doc.exists:
             data = doc.to_dict()
-            # Ensure compatibility with categories
             if data.get("categoryId") == category_id:
                 return Product(**data)
         return None
@@ -223,7 +718,6 @@ class FirestoreProductRepo:
         async for doc in docs:
             items.append(CartItem(**doc.to_dict()))
 
-        # Enforce denormalized fields by fetching product stats
         for item in items:
             p_doc = await self.db.collection("products").document(item.product_id).get()
             if p_doc.exists:
@@ -276,7 +770,7 @@ class FirestoreProductRepo:
             count += 1
         return count
 
-    # -------------------- INVENTORY / STOCK / DISCOUNT --------------------
+    # -------------------- INVENTORY OPERATIONS --------------------
     async def update_stock(self, product_id: str, quantity_change: int) -> bool:
         doc_ref = self.db.collection("products").document(product_id)
         doc = await doc_ref.get()
@@ -424,7 +918,6 @@ class SQLiteProductRepo:
                     status TEXT
                 )
             """)
-            # Persistent shopping cart table
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS cart (
                     cart_item_id TEXT PRIMARY KEY,
@@ -435,7 +928,6 @@ class SQLiteProductRepo:
                     UNIQUE(user_id, product_id)
                 )
             """)
-            # Add inventory columns to products if they don't exist
             try:
                 await db.execute("ALTER TABLE products ADD COLUMN stock_quantity INTEGER DEFAULT 100")
             except:
@@ -472,7 +964,6 @@ class SQLiteProductRepo:
 
     # -------------------- PUT (Update) --------------------
     async def update_product(self, product: Product) -> int:
-        """Returns number of rows updated"""
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute("""
                 UPDATE products
@@ -501,11 +992,9 @@ class SQLiteProductRepo:
                 FROM products
                 WHERE id = ? AND categoryId = ?
             """, (product_id, category_id))
-            
             row = await cursor.fetchone()
             if not row:
                 return None
-
             columns = [column[0] for column in cursor.description]
             data = dict(zip(columns, row))
             return Product(**data)
@@ -527,25 +1016,16 @@ class SQLiteProductRepo:
                 FROM products
             """)
             rows = await cursor.fetchall()
-            products = [
+            return [
                 Product(
-                    id=row[0],
-                    name=row[1],
-                    categoryId=row[2],
-                    description=row[3],
-                    price=row[4],
-                    ratings=row[5],
-                    reviews=row[6],
-                    image=row[7],
-                    badge=row[8],
-                    created_at=row[9],
-                    seller_id=row[10]
+                    id=row[0], name=row[1], categoryId=row[2], description=row[3],
+                    price=row[4], ratings=row[5], reviews=row[6], image=row[7],
+                    badge=row[8], created_at=row[9], seller_id=row[10]
                 )
                 for row in rows
             ]
-            return products
 
-    # -------------------- SELLER OPERATIONS --------------------
+    # -------------------- SELLERS --------------------
     async def insert_seller(self, seller: Seller) -> None:
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("""
@@ -560,7 +1040,7 @@ class SQLiteProductRepo:
             rows = await cursor.fetchall()
             return [Seller(seller_id=row[0], name=row[1], location=row[2], rating=row[3]) for row in rows]
 
-    # -------------------- ORDER OPERATIONS --------------------
+    # -------------------- ORDERS --------------------
     async def insert_order(self, order: Order) -> None:
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("""
@@ -589,7 +1069,7 @@ class SQLiteProductRepo:
             await db.commit()
             return cursor.rowcount
 
-    # -------------------- PAYMENT OPERATIONS --------------------
+    # -------------------- PAYMENTS --------------------
     async def insert_payment(self, payment: Payment) -> None:
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("""
@@ -606,7 +1086,7 @@ class SQLiteProductRepo:
                 return None
             return Payment(payment_id=row[0], order_id=row[1], amount=row[2], method=row[3], status=row[4], timestamp=row[5])
 
-    # -------------------- ORDER TRACKING OPERATIONS --------------------
+    # -------------------- TRACKING --------------------
     async def insert_tracking(self, tracking: OrderTracking) -> None:
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("""
@@ -621,7 +1101,7 @@ class SQLiteProductRepo:
             rows = await cursor.fetchall()
             return [OrderTracking(tracking_id=row[0], order_id=row[1], status=row[2], location=row[3], timestamp=row[4]) for row in rows]
 
-    # -------------------- WISHLIST OPERATIONS --------------------
+    # -------------------- WISHLIST --------------------
     async def add_to_wishlist(self, wishlist: Wishlist) -> None:
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("INSERT INTO wishlist (wishlist_id, user_id, product_id, added_date) VALUES (?, ?, ?, CURRENT_TIMESTAMP)", (wishlist.wishlist_id, wishlist.user_id, wishlist.product_id))
@@ -639,7 +1119,7 @@ class SQLiteProductRepo:
             await db.commit()
             return cursor.rowcount
 
-    # -------------------- REVIEW OPERATIONS --------------------
+    # -------------------- REVIEWS --------------------
     async def add_review(self, review: Review) -> None:
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("INSERT INTO reviews (review_id, product_id, user_id, rating, comment, review_date) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)", (review.review_id, review.product_id, review.user_id, review.rating, review.comment))
@@ -651,7 +1131,7 @@ class SQLiteProductRepo:
             rows = await cursor.fetchall()
             return [Review(review_id=row[0], product_id=row[1], user_id=row[2], rating=row[3], comment=row[4], review_date=row[5]) for row in rows]
 
-    # -------------------- COUPON OPERATIONS --------------------
+    # -------------------- COUPONS --------------------
     async def insert_coupon(self, coupon: Coupon) -> None:
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("INSERT INTO coupons (coupon_code, discount_percent, expiry_date, status) VALUES (?, ?, ?, ?)", (coupon.coupon_code, coupon.discount_percent, coupon.expiry_date, coupon.status))
@@ -665,29 +1145,19 @@ class SQLiteProductRepo:
                 return None
             return Coupon(coupon_code=row[0], discount_percent=row[1], expiry_date=row[2], status=row[3])
 
-    # -------------------- CART OPERATIONS --------------------
+    # -------------------- CART --------------------
     async def add_to_cart(self, cart_item: CartItem) -> None:
         async with aiosqlite.connect(self.db_path) as db:
-            # Check if item already in cart
             cursor = await db.execute(
                 "SELECT cart_item_id, quantity FROM cart WHERE user_id = ? AND product_id = ?",
                 (cart_item.user_id, cart_item.product_id)
             )
             existing = await cursor.fetchone()
-            
             if existing:
-                # Update quantity
                 new_quantity = existing[1] + cart_item.quantity
-                await db.execute(
-                    "UPDATE cart SET quantity = ? WHERE cart_item_id = ?",
-                    (new_quantity, existing[0])
-                )
+                await db.execute("UPDATE cart SET quantity = ? WHERE cart_item_id = ?", (new_quantity, existing[0]))
             else:
-                # Insert new item
-                await db.execute(
-                    "INSERT INTO cart (cart_item_id, user_id, product_id, quantity, added_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
-                    (cart_item.cart_item_id, cart_item.user_id, cart_item.product_id, cart_item.quantity)
-                )
+                await db.execute("INSERT INTO cart (cart_item_id, user_id, product_id, quantity, added_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)", (cart_item.cart_item_id, cart_item.user_id, cart_item.product_id, cart_item.quantity))
             await db.commit()
 
     async def get_cart(self, user_id: str) -> List[CartItem]:
@@ -707,38 +1177,23 @@ class SQLiteProductRepo:
                 discount = row[9] or 0
                 final_price = price * (1 - discount / 100)
                 items.append(CartItem(
-                    cart_item_id=row[0],
-                    user_id=row[1],
-                    product_id=row[2],
-                    quantity=row[3],
-                    added_at=row[4],
-                    product_name=row[5],
-                    product_price=round(final_price, 2),
-                    product_image=row[7]
+                    cart_item_id=row[0], user_id=row[1], product_id=row[2], quantity=row[3], added_at=row[4],
+                    product_name=row[5], product_price=round(final_price, 2), product_image=row[7]
                 ))
             return items
 
     async def update_cart_quantity(self, user_id: str, product_id: str, quantity: int) -> int:
         async with aiosqlite.connect(self.db_path) as db:
             if quantity <= 0:
-                cursor = await db.execute(
-                    "DELETE FROM cart WHERE user_id = ? AND product_id = ?",
-                    (user_id, product_id)
-                )
+                cursor = await db.execute("DELETE FROM cart WHERE user_id = ? AND product_id = ?", (user_id, product_id))
             else:
-                cursor = await db.execute(
-                    "UPDATE cart SET quantity = ? WHERE user_id = ? AND product_id = ?",
-                    (quantity, user_id, product_id)
-                )
+                cursor = await db.execute("UPDATE cart SET quantity = ? WHERE user_id = ? AND product_id = ?", (quantity, user_id, product_id))
             await db.commit()
             return cursor.rowcount
 
     async def remove_from_cart(self, user_id: str, product_id: str) -> int:
         async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute(
-                "DELETE FROM cart WHERE user_id = ? AND product_id = ?",
-                (user_id, product_id)
-            )
+            cursor = await db.execute("DELETE FROM cart WHERE user_id = ? AND product_id = ?", (user_id, product_id))
             await db.commit()
             return cursor.rowcount
 
@@ -748,95 +1203,69 @@ class SQLiteProductRepo:
             await db.commit()
             return cursor.rowcount
 
-    # -------------------- INVENTORY OPERATIONS --------------------
+    # -------------------- STOCK & DISCOUNTS --------------------
     async def update_stock(self, product_id: str, quantity_change: int) -> bool:
         async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute(
-                "SELECT stock_quantity FROM products WHERE id = ?", (product_id,)
-            )
+            cursor = await db.execute("SELECT stock_quantity FROM products WHERE id = ?", (product_id,))
             row = await cursor.fetchone()
             if not row:
                 return False
-            
-            current_stock = row[0] or 0
-            new_stock = current_stock + quantity_change
-            
+            current = row[0] or 0
+            new_stock = current + quantity_change
             if new_stock < 0:
                 return False
-            
-            await db.execute(
-                "UPDATE products SET stock_quantity = ? WHERE id = ?",
-                (new_stock, product_id)
-            )
+            await db.execute("UPDATE products SET stock_quantity = ? WHERE id = ?", (new_stock, product_id))
             await db.commit()
             return True
 
     async def check_stock(self, product_id: str) -> dict:
         async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute(
-                "SELECT stock_quantity, name FROM products WHERE id = ?", (product_id,)
-            )
+            cursor = await db.execute("SELECT stock_quantity, name FROM products WHERE id = ?", (product_id,))
             row = await cursor.fetchone()
             if not row:
                 return {"available": False, "quantity": 0, "message": "Product not found"}
-            
             stock = row[0] or 0
-            return {
-                "available": stock > 0,
-                "quantity": stock,
-                "product_name": row[1],
-                "message": "In stock" if stock > 0 else "Out of stock"
-            }
+            return {"available": stock > 0, "quantity": stock, "product_name": row[1], "message": "In stock" if stock > 0 else "Out of stock"}
 
     async def set_discount(self, product_id: str, discount_percent: float) -> bool:
         async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute(
-                "SELECT price, original_price FROM products WHERE id = ?", (product_id,)
-            )
+            cursor = await db.execute("SELECT price, original_price FROM products WHERE id = ?", (product_id,))
             row = await cursor.fetchone()
             if not row:
                 return False
-            
-            current_price = row[0]
-            original_price = row[1] or current_price
-            new_price = original_price * (1 - discount_percent / 100)
-            
-            await db.execute(
-                "UPDATE products SET price = ?, discount_percent = ?, original_price = ? WHERE id = ?",
-                (round(new_price, 2), discount_percent, original_price, product_id)
-            )
+            curr = row[0]
+            orig = row[1] or curr
+            new_p = orig * (1 - discount_percent / 100)
+            await db.execute("UPDATE products SET price = ?, discount_percent = ?, original_price = ? WHERE id = ?", (round(new_p, 2), discount_percent, orig, product_id))
             await db.commit()
             return True
 
     async def get_discounted_products(self) -> List[Product]:
         async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute("""
-                SELECT id, name, categoryId, description, price, ratings, reviews, image, badge, 
-                       created_at, seller_id, stock_quantity, discount_percent, original_price
-                FROM products 
-                WHERE discount_percent > 0
-                ORDER BY discount_percent DESC
-            """)
+            cursor = await db.execute("SELECT id, name, categoryId, description, price, ratings, reviews, image, badge, created_at, seller_id, stock_quantity, discount_percent, original_price FROM products WHERE discount_percent > 0 ORDER BY discount_percent DESC")
             rows = await cursor.fetchall()
-            products = []
-            for row in rows:
-                products.append(Product(
-                    id=row[0], name=row[1], categoryId=row[2], description=row[3],
-                    price=row[4], ratings=row[5], reviews=row[6], image=row[7],
-                    badge=row[8], created_at=row[9], seller_id=row[10],
-                    stock_quantity=row[11], discount_percent=row[12], original_price=row[13]
-                ))
-            return products
+            return [Product(id=row[0], name=row[1], categoryId=row[2], description=row[3], price=row[4], ratings=row[5], reviews=row[6], image=row[7], badge=row[8], created_at=row[9], seller_id=row[10], stock_quantity=row[11], discount_percent=row[12], original_price=row[13]) for row in rows]
 
 
 # =====================================================================
-# Database Repository Router / Switch proxy
+# Database Repository Router / Switch Proxy
 # =====================================================================
 
 class ProductRepo:
     def __init__(self, db_path: str = "products.db"):
+        self.db_url = os.getenv("DATABASE_URL")
+        # Check if database URL points to PostgreSQL (Supabase)
+        self.use_postgres = self.db_url and (self.db_url.startswith("postgres://") or self.db_url.startswith("postgresql://"))
         self.use_firebase = os.getenv("USE_FIREBASE") == "true"
-        if self.use_firebase:
+
+        if self.use_postgres:
+            if not HAS_ASYNCPG:
+                raise ImportError(
+                    "asyncpg is required to use PostgreSQL/Supabase. "
+                    "Please install it using: pip install asyncpg"
+                )
+            self.repo = PostgresProductRepo(self.db_url)
+        elif self.use_firebase:
             if not HAS_FIRESTORE:
                 raise ImportError(
                     "google-cloud-firestore and google-auth are required to use Firebase. "
