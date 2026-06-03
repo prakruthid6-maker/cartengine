@@ -1,9 +1,339 @@
 import aiosqlite
 from typing import List, Optional
 from models.data_models import Product, Seller, Order, Payment, OrderTracking, Wishlist, Review, Coupon, CartItem, Cart
+import os
+import json
+import uuid
+from datetime import datetime
+
+# Optional Firebase SDK Imports to ensure local development without Firebase doesn't crash
+try:
+    from google.oauth2 import service_account
+    from google.cloud import firestore
+    HAS_FIRESTORE = True
+except ImportError:
+    HAS_FIRESTORE = False
 
 
-class ProductRepo:
+# =====================================================================
+# Firestore Implementation
+# =====================================================================
+
+class FirestoreProductRepo:
+    def __init__(self):
+        creds_json = os.getenv("FIREBASE_CREDENTIALS")
+        if creds_json:
+            try:
+                creds_dict = json.loads(creds_json)
+                creds = service_account.Credentials.from_service_account_info(creds_dict)
+                self.db = firestore.AsyncClient(project=creds_dict.get("project_id"), credentials=creds)
+            except Exception as e:
+                print(f"Warning: Failed to load Firebase credentials JSON: {e}")
+                self.db = firestore.AsyncClient()
+        else:
+            self.db = firestore.AsyncClient()
+
+    async def init_db(self):
+        # Firestore does not require tables creation
+        pass
+
+    # -------------------- PRODUCTS --------------------
+    async def insert_product(self, product: Product) -> None:
+        doc_ref = self.db.collection("products").document(product.id)
+        if not product.created_at:
+            product.created_at = datetime.utcnow().isoformat() + "Z"
+        await doc_ref.set(product.model_dump())
+
+    async def update_product(self, product: Product) -> int:
+        doc_ref = self.db.collection("products").document(product.id)
+        doc = await doc_ref.get()
+        if doc.exists:
+            await doc_ref.set(product.model_dump())
+            return 1
+        return 0
+
+    async def get_product(self, product_id: str, category_id: str) -> Optional[Product]:
+        doc = await self.db.collection("products").document(product_id).get()
+        if doc.exists:
+            data = doc.to_dict()
+            # Ensure compatibility with categories
+            if data.get("categoryId") == category_id:
+                return Product(**data)
+        return None
+
+    async def delete_product(self, product_id: str, category_id: str) -> int:
+        doc_ref = self.db.collection("products").document(product_id)
+        doc = await doc_ref.get()
+        if doc.exists:
+            data = doc.to_dict()
+            if data.get("categoryId") == category_id:
+                await doc_ref.delete()
+                return 1
+        return 0
+
+    async def get_all_products(self) -> List[Product]:
+        docs = self.db.collection("products").stream()
+        products = []
+        async for doc in docs:
+            products.append(Product(**doc.to_dict()))
+        return products
+
+    # -------------------- SELLERS --------------------
+    async def insert_seller(self, seller: Seller) -> None:
+        await self.db.collection("sellers").document(seller.seller_id).set(seller.model_dump())
+
+    async def get_all_sellers(self) -> List[Seller]:
+        docs = self.db.collection("sellers").stream()
+        sellers = []
+        async for doc in docs:
+            sellers.append(Seller(**doc.to_dict()))
+        return sellers
+
+    # -------------------- ORDERS --------------------
+    async def insert_order(self, order: Order) -> None:
+        if not order.order_date:
+            order.order_date = datetime.utcnow().isoformat() + "Z"
+        await self.db.collection("orders").document(order.order_id).set(order.model_dump())
+
+    async def get_order(self, order_id: str) -> Optional[Order]:
+        doc = await self.db.collection("orders").document(order_id).get()
+        if doc.exists:
+            return Order(**doc.to_dict())
+        return None
+
+    async def get_user_orders(self, user_id: str) -> List[Order]:
+        query = self.db.collection("orders").where(filter=firestore.FieldFilter("user_id", "==", user_id))
+        docs = query.stream()
+        orders = []
+        async for doc in docs:
+            orders.append(Order(**doc.to_dict()))
+        orders.sort(key=lambda o: o.order_date or "", reverse=True)
+        return orders
+
+    async def update_order_status(self, order_id: str, status: str) -> int:
+        doc_ref = self.db.collection("orders").document(order_id)
+        doc = await doc_ref.get()
+        if doc.exists:
+            await doc_ref.update({"status": status})
+            return 1
+        return 0
+
+    # -------------------- PAYMENTS --------------------
+    async def insert_payment(self, payment: Payment) -> None:
+        if not payment.timestamp:
+            payment.timestamp = datetime.utcnow().isoformat() + "Z"
+        await self.db.collection("payments").document(payment.payment_id).set(payment.model_dump())
+
+    async def get_payment(self, order_id: str) -> Optional[Payment]:
+        query = self.db.collection("payments").where(filter=firestore.FieldFilter("order_id", "==", order_id)).limit(1)
+        docs = query.stream()
+        async for doc in docs:
+            return Payment(**doc.to_dict())
+        return None
+
+    # -------------------- ORDER TRACKING --------------------
+    async def insert_tracking(self, tracking: OrderTracking) -> None:
+        if not tracking.timestamp:
+            tracking.timestamp = datetime.utcnow().isoformat() + "Z"
+        await self.db.collection("order_tracking").document(tracking.tracking_id).set(tracking.model_dump())
+
+    async def get_tracking_history(self, order_id: str) -> List[OrderTracking]:
+        query = self.db.collection("order_tracking").where(filter=firestore.FieldFilter("order_id", "==", order_id))
+        docs = query.stream()
+        history = []
+        async for doc in docs:
+            history.append(OrderTracking(**doc.to_dict()))
+        history.sort(key=lambda t: t.timestamp or "", reverse=True)
+        return history
+
+    # -------------------- WISHLIST --------------------
+    async def add_to_wishlist(self, wishlist: Wishlist) -> None:
+        if not wishlist.added_date:
+            wishlist.added_date = datetime.utcnow().isoformat() + "Z"
+        await self.db.collection("wishlist").document(wishlist.wishlist_id).set(wishlist.model_dump())
+
+    async def get_wishlist(self, user_id: str) -> List[Wishlist]:
+        query = self.db.collection("wishlist").where(filter=firestore.FieldFilter("user_id", "==", user_id))
+        docs = query.stream()
+        wishlist = []
+        async for doc in docs:
+            wishlist.append(Wishlist(**doc.to_dict()))
+        return wishlist
+
+    async def remove_from_wishlist(self, user_id: str, product_id: str) -> int:
+        query = self.db.collection("wishlist")\
+            .where(filter=firestore.FieldFilter("user_id", "==", user_id))\
+            .where(filter=firestore.FieldFilter("product_id", "==", product_id))
+        docs = query.stream()
+        count = 0
+        async for doc in docs:
+            await doc.reference.delete()
+            count += 1
+        return count
+
+    # -------------------- REVIEWS --------------------
+    async def add_review(self, review: Review) -> None:
+        if not review.review_date:
+            review.review_date = datetime.utcnow().isoformat() + "Z"
+        await self.db.collection("reviews").document(review.review_id).set(review.model_dump())
+
+    async def get_product_reviews(self, product_id: str) -> List[Review]:
+        query = self.db.collection("reviews").where(filter=firestore.FieldFilter("product_id", "==", product_id))
+        docs = query.stream()
+        reviews = []
+        async for doc in docs:
+            reviews.append(Review(**doc.to_dict()))
+        reviews.sort(key=lambda r: r.review_date or "", reverse=True)
+        return reviews
+
+    # -------------------- COUPONS --------------------
+    async def insert_coupon(self, coupon: Coupon) -> None:
+        await self.db.collection("coupons").document(coupon.coupon_code).set(coupon.model_dump())
+
+    async def get_coupon(self, coupon_code: str) -> Optional[Coupon]:
+        doc = await self.db.collection("coupons").document(coupon_code).get()
+        if doc.exists:
+            return Coupon(**doc.to_dict())
+        return None
+
+    # -------------------- CART --------------------
+    async def add_to_cart(self, cart_item: CartItem) -> None:
+        query = self.db.collection("cart")\
+            .where(filter=firestore.FieldFilter("user_id", "==", cart_item.user_id))\
+            .where(filter=firestore.FieldFilter("product_id", "==", cart_item.product_id))\
+            .limit(1)
+        docs = query.stream()
+        existing = None
+        async for doc in docs:
+            existing = doc
+            break
+
+        if existing:
+            new_quantity = existing.to_dict().get("quantity", 0) + cart_item.quantity
+            await existing.reference.update({"quantity": new_quantity})
+        else:
+            if not cart_item.added_at:
+                cart_item.added_at = datetime.utcnow().isoformat() + "Z"
+            await self.db.collection("cart").document(cart_item.cart_item_id).set(cart_item.model_dump())
+
+    async def get_cart(self, user_id: str) -> List[CartItem]:
+        query = self.db.collection("cart").where(filter=firestore.FieldFilter("user_id", "==", user_id))
+        docs = query.stream()
+        items = []
+        async for doc in docs:
+            items.append(CartItem(**doc.to_dict()))
+
+        # Enforce denormalized fields by fetching product stats
+        for item in items:
+            p_doc = await self.db.collection("products").document(item.product_id).get()
+            if p_doc.exists:
+                p_data = p_doc.to_dict()
+                item.product_name = p_data.get("name")
+                price = p_data.get("price") or 0.0
+                discount = p_data.get("discount_percent") or 0.0
+                item.product_price = round(price * (1 - discount / 100), 2)
+                item.product_image = p_data.get("image")
+        
+        items.sort(key=lambda c: c.added_at or "", reverse=True)
+        return items
+
+    async def update_cart_quantity(self, user_id: str, product_id: str, quantity: int) -> int:
+        query = self.db.collection("cart")\
+            .where(filter=firestore.FieldFilter("user_id", "==", user_id))\
+            .where(filter=firestore.FieldFilter("product_id", "==", product_id))\
+            .limit(1)
+        docs = query.stream()
+        existing = None
+        async for doc in docs:
+            existing = doc
+            break
+
+        if existing:
+            if quantity <= 0:
+                await existing.reference.delete()
+            else:
+                await existing.reference.update({"quantity": quantity})
+            return 1
+        return 0
+
+    async def remove_from_cart(self, user_id: str, product_id: str) -> int:
+        query = self.db.collection("cart")\
+            .where(filter=firestore.FieldFilter("user_id", "==", user_id))\
+            .where(filter=firestore.FieldFilter("product_id", "==", product_id))
+        docs = query.stream()
+        count = 0
+        async for doc in docs:
+            await doc.reference.delete()
+            count += 1
+        return count
+
+    async def clear_cart(self, user_id: str) -> int:
+        query = self.db.collection("cart").where(filter=firestore.FieldFilter("user_id", "==", user_id))
+        docs = query.stream()
+        count = 0
+        async for doc in docs:
+            await doc.reference.delete()
+            count += 1
+        return count
+
+    # -------------------- INVENTORY / STOCK / DISCOUNT --------------------
+    async def update_stock(self, product_id: str, quantity_change: int) -> bool:
+        doc_ref = self.db.collection("products").document(product_id)
+        doc = await doc_ref.get()
+        if not doc.exists:
+            return False
+        data = doc.to_dict()
+        current = data.get("stock_quantity") or 0
+        new_val = current + quantity_change
+        if new_val < 0:
+            return False
+        await doc_ref.update({"stock_quantity": new_val})
+        return True
+
+    async def check_stock(self, product_id: str) -> dict:
+        doc = await self.db.collection("products").document(product_id).get()
+        if not doc.exists:
+            return {"available": False, "quantity": 0, "message": "Product not found"}
+        data = doc.to_dict()
+        stock = data.get("stock_quantity") or 0
+        return {
+            "available": stock > 0,
+            "quantity": stock,
+            "product_name": data.get("name", "Unknown Product"),
+            "message": "In stock" if stock > 0 else "Out of stock"
+        }
+
+    async def set_discount(self, product_id: str, discount_percent: float) -> bool:
+        doc_ref = self.db.collection("products").document(product_id)
+        doc = await doc_ref.get()
+        if not doc.exists:
+            return False
+        data = doc.to_dict()
+        current_price = data.get("price") or 0.0
+        original_price = data.get("original_price") or current_price
+        new_price = original_price * (1 - discount_percent / 100)
+        await doc_ref.update({
+            "price": round(new_price, 2),
+            "discount_percent": discount_percent,
+            "original_price": original_price
+        })
+        return True
+
+    async def get_discounted_products(self) -> List[Product]:
+        query = self.db.collection("products").where(filter=firestore.FieldFilter("discount_percent", ">", 0))
+        docs = query.stream()
+        products = []
+        async for doc in docs:
+            products.append(Product(**doc.to_dict()))
+        products.sort(key=lambda p: p.discount_percent or 0.0, reverse=True)
+        return products
+
+
+# =====================================================================
+# SQLite Implementation
+# =====================================================================
+
+class SQLiteProductRepo:
     def __init__(self, db_path: str = "products.db"):
         self.db_path = db_path
 
@@ -94,7 +424,7 @@ class ProductRepo:
                     status TEXT
                 )
             """)
-            # New: Cart table for persistent shopping cart
+            # Persistent shopping cart table
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS cart (
                     cart_item_id TEXT PRIMARY KEY,
@@ -337,7 +667,6 @@ class ProductRepo:
 
     # -------------------- CART OPERATIONS --------------------
     async def add_to_cart(self, cart_item: CartItem) -> None:
-        """Add item to cart or update quantity if already exists"""
         async with aiosqlite.connect(self.db_path) as db:
             # Check if item already in cart
             cursor = await db.execute(
@@ -362,7 +691,6 @@ class ProductRepo:
             await db.commit()
 
     async def get_cart(self, user_id: str) -> List[CartItem]:
-        """Get all items in user's cart with product details"""
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute("""
                 SELECT c.cart_item_id, c.user_id, c.product_id, c.quantity, c.added_at,
@@ -375,7 +703,6 @@ class ProductRepo:
             rows = await cursor.fetchall()
             items = []
             for row in rows:
-                # Apply discount to price
                 price = row[6] or 0
                 discount = row[9] or 0
                 final_price = price * (1 - discount / 100)
@@ -392,10 +719,8 @@ class ProductRepo:
             return items
 
     async def update_cart_quantity(self, user_id: str, product_id: str, quantity: int) -> int:
-        """Update quantity of item in cart. Returns rows affected."""
         async with aiosqlite.connect(self.db_path) as db:
             if quantity <= 0:
-                # Remove item if quantity is 0 or negative
                 cursor = await db.execute(
                     "DELETE FROM cart WHERE user_id = ? AND product_id = ?",
                     (user_id, product_id)
@@ -409,7 +734,6 @@ class ProductRepo:
             return cursor.rowcount
 
     async def remove_from_cart(self, user_id: str, product_id: str) -> int:
-        """Remove item from cart. Returns rows affected."""
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 "DELETE FROM cart WHERE user_id = ? AND product_id = ?",
@@ -419,7 +743,6 @@ class ProductRepo:
             return cursor.rowcount
 
     async def clear_cart(self, user_id: str) -> int:
-        """Clear all items from user's cart. Returns rows affected."""
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute("DELETE FROM cart WHERE user_id = ?", (user_id,))
             await db.commit()
@@ -427,9 +750,7 @@ class ProductRepo:
 
     # -------------------- INVENTORY OPERATIONS --------------------
     async def update_stock(self, product_id: str, quantity_change: int) -> bool:
-        """Update product stock. Negative for decrease, positive for increase."""
         async with aiosqlite.connect(self.db_path) as db:
-            # Check current stock
             cursor = await db.execute(
                 "SELECT stock_quantity FROM products WHERE id = ?", (product_id,)
             )
@@ -441,7 +762,7 @@ class ProductRepo:
             new_stock = current_stock + quantity_change
             
             if new_stock < 0:
-                return False  # Cannot have negative stock
+                return False
             
             await db.execute(
                 "UPDATE products SET stock_quantity = ? WHERE id = ?",
@@ -451,7 +772,6 @@ class ProductRepo:
             return True
 
     async def check_stock(self, product_id: str) -> dict:
-        """Check product stock availability"""
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 "SELECT stock_quantity, name FROM products WHERE id = ?", (product_id,)
@@ -469,9 +789,7 @@ class ProductRepo:
             }
 
     async def set_discount(self, product_id: str, discount_percent: float) -> bool:
-        """Set discount percentage for a product"""
         async with aiosqlite.connect(self.db_path) as db:
-            # Get current price to save as original if not already set
             cursor = await db.execute(
                 "SELECT price, original_price FROM products WHERE id = ?", (product_id,)
             )
@@ -481,8 +799,6 @@ class ProductRepo:
             
             current_price = row[0]
             original_price = row[1] or current_price
-            
-            # Calculate new discounted price
             new_price = original_price * (1 - discount_percent / 100)
             
             await db.execute(
@@ -493,7 +809,6 @@ class ProductRepo:
             return True
 
     async def get_discounted_products(self) -> List[Product]:
-        """Get all products with active discounts"""
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute("""
                 SELECT id, name, categoryId, description, price, ratings, reviews, image, badge, 
@@ -513,3 +828,116 @@ class ProductRepo:
                 ))
             return products
 
+
+# =====================================================================
+# Database Repository Router / Switch proxy
+# =====================================================================
+
+class ProductRepo:
+    def __init__(self, db_path: str = "products.db"):
+        self.use_firebase = os.getenv("USE_FIREBASE") == "true"
+        if self.use_firebase:
+            if not HAS_FIRESTORE:
+                raise ImportError(
+                    "google-cloud-firestore and google-auth are required to use Firebase. "
+                    "Please install them using: pip install google-cloud-firestore google-auth"
+                )
+            self.repo = FirestoreProductRepo()
+        else:
+            self.repo = SQLiteProductRepo(db_path)
+
+    async def init_db(self):
+        await self.repo.init_db()
+
+    async def insert_product(self, product: Product) -> None:
+        await self.repo.insert_product(product)
+
+    async def update_product(self, product: Product) -> int:
+        return await self.repo.update_product(product)
+
+    async def get_product(self, product_id: str, category_id: str) -> Optional[Product]:
+        return await self.repo.get_product(product_id, category_id)
+
+    async def delete_product(self, product_id: str, category_id: str) -> int:
+        return await self.repo.delete_product(product_id, category_id)
+
+    async def get_all_products(self) -> List[Product]:
+        return await self.repo.get_all_products()
+
+    async def insert_seller(self, seller: Seller) -> None:
+        await self.repo.insert_seller(seller)
+
+    async def get_all_sellers(self) -> List[Seller]:
+        return await self.repo.get_all_sellers()
+
+    async def insert_order(self, order: Order) -> None:
+        await self.repo.insert_order(order)
+
+    async def get_order(self, order_id: str) -> Optional[Order]:
+        return await self.repo.get_order(order_id)
+
+    async def get_user_orders(self, user_id: str) -> List[Order]:
+        return await self.repo.get_user_orders(user_id)
+
+    async def update_order_status(self, order_id: str, status: str) -> int:
+        return await self.repo.update_order_status(order_id, status)
+
+    async def insert_payment(self, payment: Payment) -> None:
+        await self.repo.insert_payment(payment)
+
+    async def get_payment(self, order_id: str) -> Optional[Payment]:
+        return await self.repo.get_payment(order_id)
+
+    async def insert_tracking(self, tracking: OrderTracking) -> None:
+        await self.repo.insert_tracking(tracking)
+
+    async def get_tracking_history(self, order_id: str) -> List[OrderTracking]:
+        return await self.repo.get_tracking_history(order_id)
+
+    async def add_to_wishlist(self, wishlist: Wishlist) -> None:
+        await self.repo.add_to_wishlist(wishlist)
+
+    async def get_wishlist(self, user_id: str) -> List[Wishlist]:
+        return await self.repo.get_wishlist(user_id)
+
+    async def remove_from_wishlist(self, user_id: str, product_id: str) -> int:
+        return await self.repo.remove_from_wishlist(user_id, product_id)
+
+    async def add_review(self, review: Review) -> None:
+        await self.repo.add_review(review)
+
+    async def get_product_reviews(self, product_id: str) -> List[Review]:
+        return await self.repo.get_product_reviews(product_id)
+
+    async def insert_coupon(self, coupon: Coupon) -> None:
+        await self.repo.insert_coupon(coupon)
+
+    async def get_coupon(self, coupon_code: str) -> Optional[Coupon]:
+        return await self.repo.get_coupon(coupon_code)
+
+    async def add_to_cart(self, cart_item: CartItem) -> None:
+        await self.repo.add_to_cart(cart_item)
+
+    async def get_cart(self, user_id: str) -> List[CartItem]:
+        return await self.repo.get_cart(user_id)
+
+    async def update_cart_quantity(self, user_id: str, product_id: str, quantity: int) -> int:
+        return await self.repo.update_cart_quantity(user_id, product_id, quantity)
+
+    async def remove_from_cart(self, user_id: str, product_id: str) -> int:
+        return await self.repo.remove_from_cart(user_id, product_id)
+
+    async def clear_cart(self, user_id: str) -> int:
+        return await self.repo.clear_cart(user_id)
+
+    async def update_stock(self, product_id: str, quantity_change: int) -> bool:
+        return await self.repo.update_stock(product_id, quantity_change)
+
+    async def check_stock(self, product_id: str) -> dict:
+        return await self.repo.check_stock(product_id)
+
+    async def set_discount(self, product_id: str, discount_percent: float) -> bool:
+        return await self.repo.set_discount(product_id, discount_percent)
+
+    async def get_discounted_products(self) -> List[Product]:
+        return await self.repo.get_discounted_products()

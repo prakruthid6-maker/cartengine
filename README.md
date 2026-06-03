@@ -391,27 +391,37 @@ Los_codigos_782/
 
 ## 🚀 Deployment Notes
 
+### Production Cloud Infrastructure
+We support deploying the project on **Vercel** (frontend), **Render** (backend), and **Firebase Firestore** (production database).
+
+#### 1. Database: Firebase Firestore
+1. Go to the [Firebase Console](https://console.firebase.google.com/) and create a Firestore Database.
+2. Go to **Project Settings** > **Service Accounts** and click **Generate New Private Key** to download the credentials JSON file.
+3. Paste the contents of this JSON file as the `FIREBASE_CREDENTIALS` environment variable in Render.
+
+#### 2. Backend API: Render
+1. Create a Python Web Service on Render pointing to `backend/`.
+2. Use build command `pip install -r requirements.txt` and start command `uvicorn main:app --host 0.0.0.0 --port $PORT`.
+3. Add the following **Environment Variables**:
+   - `USE_FIREBASE`: `true`
+   - `FIREBASE_CREDENTIALS`: `your_raw_service_account_json_content`
+   - `GOOGLE_API_KEY`: `your_gemini_api_key`
+   - `JWT_SECRET`: `your_jwt_signing_secret`
+   - `ENVIRONMENT`: `production`
+
+#### 3. Frontend Hosting: Vercel
+1. Link your GitHub repository to Vercel.
+2. Set the root directory to `cartengine/frontend-next` (for Next.js) or `cartengine/frontend` (for static HTML/JS).
+3. Set the **Environment Variable**:
+   - `NEXT_PUBLIC_API_URL`: `https://your-backend-url.onrender.com`
+
 ### Production Checklist
+- [x] Integrate cloud database support (Firebase Firestore)
 - [ ] Replace demo credentials with real authentication (JWT)
 - [ ] Hash passwords with bcrypt
-- [ ] Use environment variables for sensitive data
 - [ ] Enable HTTPS only
 - [ ] Add rate limiting
 - [ ] Implement session timeout
-- [ ] Use production database (PostgreSQL/MySQL)
-- [ ] Add logging and monitoring
-- [ ] Optimize images and assets
-- [ ] Enable CDN for static files
-- [ ] Add error tracking (Sentry)
-- [ ] Implement backup strategy
-
-### Environment Variables
-```bash
-GOOGLE_API_KEY=your_api_key_here
-PORT=8080
-DATABASE_URL=sqlite:///products.db
-ALLOWED_ORIGINS=http://localhost:3000,https://yourdomain.com
-```
 
 ## 🤝 Contributing
 

@@ -51,5 +51,21 @@ class ProductService:
     # -------------------- GET ALL / SEARCH --------------------
     async def get_products_by_query(self, query: str) -> List[Product]:
         await self.repo.init_db()
-        # Currently ignoring query filtering
-        return await self.repo.get_all_products()
+        products = await self.repo.get_all_products()
+        if not query:
+            return products
+
+        import re
+        # Parse simple 'id = "..."' or 'id = '...'' query filter
+        id_match = re.search(r"id\s*=\s*['\"]([^'\"]+)['\"]", query, re.IGNORECASE)
+        if id_match:
+            target_id = id_match.group(1)
+            return [p for p in products if p.id == target_id]
+
+        # Parse simple categoryId/category queries
+        cat_match = re.search(r"(?:categoryId|category)\s*=\s*['\"]([^'\"]+)['\"]", query, re.IGNORECASE)
+        if cat_match:
+            target_cat = cat_match.group(1)
+            return [p for p in products if p.categoryId == target_cat]
+
+        return products
