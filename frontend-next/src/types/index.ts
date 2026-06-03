@@ -12,6 +12,11 @@ export interface Product {
     badge?: string;
     seller_id?: string;
     created_at?: string;
+    stock_quantity?: number;
+    discount_percent?: number;
+    original_price?: number;
+    sku?: string;
+    specifications?: any;
 }
 
 export interface CartItem {
