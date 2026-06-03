@@ -27,7 +27,7 @@ load_dotenv()
 # Initialize services
 product_service = ProductService("products.db")
 
-# Get the directory where main.py is located
+# Get the directory where main.py is located (parent of techai_agent)
 AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Configure allowed origins for CORS
@@ -36,11 +36,9 @@ ALLOWED_ORIGINS = [
     "http://localhost:8080",     # FastAPI dev
     "http://127.0.0.1:3000",
     "http://127.0.0.1:8080",
+    "https://cartengine-zgwc.vercel.app",  # Vercel production
+    "*",  # Allow all origins for deployment
 ]
-
-# Add wildcard for development (remove in production)
-if os.getenv("ENVIRONMENT", "development") == "development":
-    ALLOWED_ORIGINS.append("*")
 
 # Web interface flag
 SERVE_WEB_INTERFACE = True
